@@ -1,0 +1,32 @@
+{
+  "time": 1717200000,
+  "self_id": 10000,
+  "post_type": "message",
+  "message_type": "group",
+  "sub_type": "normal",
+  "message_id": 1110003,
+  "user_id": 10001000,
+  "group_id": 123456789,
+  "anonymous": null,
+  "message": [
+    {
+      "type": "image",
+      "data": {
+        "file": "NOURL.jpg"
+      }
+    }
+  ],
+  "raw_message": "[CQ:image,file=NOURL.jpg]",
+  "font": 0,
+  "sender": {
+    "user_id": 10001000,
+    "nickname": "滑稽",
+    "card": "",
+    "sex": "male",
+    "age": 20,
+    "area": "",
+    "level": "",
+    "role": "member",
+    "title": ""
+  }
+}

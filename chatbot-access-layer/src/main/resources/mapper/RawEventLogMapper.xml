@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.access.archive.RawEventLogMapper">
+
+    <!-- 原始报文留档：接入层收到平台报文后原样落库，不做任何加工。
+         created_at 交给 DB 默认值（CURRENT_TIMESTAMP(3)），插入语句不写该列。 -->
+    <insert id="insertRawEventLog" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO raw_event_log
+        (platform, bot_id, direction, event_type, dedup_key, raw_payload, occurred_at, received_at)
+        VALUES (#{platform}, #{botId}, #{direction}, #{eventType}, #{dedupKey}, #{rawPayload},
+                #{occurredAt}, #{receivedAt})
+    </insert>
+
+</mapper>

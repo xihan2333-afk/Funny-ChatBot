@@ -1,7 +1,6 @@
 # Funny-ChatBot
 
-基于 Spring Boot的 AI Agent 趣味对话系统
-
+基于 Spring Boot 的 AI Agent 趣味对话系统
 
 ## 工程结构
 
@@ -15,19 +14,30 @@
 | chatbot-sandbox-executor | 可执行 jar | 沙箱执行服务：docker-java 封装与受限代码执行         |
 | chatbot-admin-web        | 静态资源    | 管理平台前端（Vue3 + TS），独立 npm 工程，不进 Maven |
 
-## 本地构建
+## 构建与测试
 
-要求 JDK 21。Maven 版本由 wrapper 统一锁定为 3.9.9
+要求 JDK 21、Maven 3.6+。接入层相关的构建与验证命令：
 
 ```bash
-# 后端：全模块构建（Windows 下用 mvnw.cmd）
-./mvnw clean package
+# 单元测试 + ArchUnit 规约测试（秒级，无需 Docker）
+mvn -pl chatbot-contract,chatbot-access-layer -am test
+
+# 全量验证（含 Testcontainers 集成测试，需要本机 Docker）
+mvn -pl chatbot-contract,chatbot-access-layer -am verify
 
 # 前端
 cd chatbot-admin-web && npm install && npm run build
 ```
 
-骨架阶段尚未连接 MySQL / Redis 等中间件，`application.yml` 中以注释模板占位，接入环境时补全。
+环境变量参照仓库根 `.env.example`（部署层配置：协议端地址与令牌、MySQL / Redis 连接、雪花机器号）。
+
+## 端到端验证入口
+
+接入层「听得见、说得出、断了能续上」的完整验证场景（场景 A 群消息入流 / 场景 B 出事件投递与
+回执闭环 / 场景 C 断线重连与 pending 重投）定义在
+`.specify/specs/001-access-layer/quickstart.md`，全部场景均有同口径的自动化集成测试
+（`chatbot-access-layer` 下 `*IT` 类，`mvn verify` 执行）覆盖；compose 冒烟入口在
+`deploy/docker-compose.yml`。
 
 ## 技术栈规约
 
