@@ -1,13 +1,13 @@
 package cn.edu.scut.chatbot.access.codec;
 
 import cn.edu.scut.chatbot.access.archive.RawEventArchiver;
-import cn.edu.scut.chatbot.access.bootstrap.SnowflakeIdGenerator;
-import cn.edu.scut.chatbot.access.infrastructure.RetryableException;
 import cn.edu.scut.chatbot.access.infrastructure.StreamGateway;
 import cn.edu.scut.chatbot.contract.envelope.EventEnvelope;
 import cn.edu.scut.chatbot.contract.envelope.PlatformCodes;
 import cn.edu.scut.chatbot.contract.envelope.RawEventRef;
 import cn.edu.scut.chatbot.contract.error.ErrorCodes;
+import cn.edu.scut.chatbot.contract.in.GroupMessagePayload;
+import cn.edu.scut.chatbot.contract.in.PrivateMessagePayload;
 import cn.edu.scut.chatbot.contract.in.RawEventReasonCodes;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
@@ -103,17 +103,34 @@ public class InboundPipeline {
     }
 
     /**
-     * XADD 落流；Redis 失败不确认（原文已留档），错误日志带 errorCode 进告警
+     * XADD 落流；Redis 失败不确认（原文已留档），错误日志带 errorCode 进告警。
+     * 成功路径打一条 INFO 摘要（观测用：每条事件一行，凭它看「平台消息到了哪一步」）。
      */
     private void publish(EventEnvelope envelope) {
         String json = envelopeCodec.serialize(envelope);
         try {
             streamGateway.appendEnvelope(inStreamKey, json);
+            log.info("事件入流：eventId={}，type={}，group={}，user={}，dedupKey={}，内容={}",
+                    envelope.eventId(), envelope.type(), envelope.groupId(), envelope.userId(),
+                    envelope.dedupKey(), messageTextOf(envelope));
         } catch (Exception e) {
             // StreamGateway 失败统一按写失败处理（无论底层抛 Retryable 还是 Spring DataAccessException）
             log.error("事件 XADD 失败，原文已留档、该事件不确认。errorCode={}，eventId={}，type={}",
                     ErrorCodes.ADAPTER_STREAM_WRITE_FAILED, envelope.eventId(), envelope.type(), e);
         }
+    }
+
+    /**
+     * 入站日志的消息内容：消息类事件打 rawText 摘要，非消息事件（入群 / 戳一戳等）无文本概念记 "-"
+     */
+    private String messageTextOf(EventEnvelope envelope) {
+        if (envelope.payload() instanceof GroupMessagePayload group) {
+            return MessageTextSummary.ofRawText(group.rawText());
+        }
+        if (envelope.payload() instanceof PrivateMessagePayload priv) {
+            return MessageTextSummary.ofRawText(priv.rawText());
+        }
+        return "-";
     }
 
     /**

@@ -6,24 +6,14 @@ import org.springframework.boot.web.server.WebServer;
 
 import javax.servlet.ServletContext;
 import javax.servlet.ServletException;
-import javax.websocket.CloseReason;
-import javax.websocket.Endpoint;
-import javax.websocket.EndpointConfig;
-import javax.websocket.HandshakeResponse;
-import javax.websocket.MessageHandler;
-import javax.websocket.Session;
+import javax.websocket.*;
 import javax.websocket.server.HandshakeRequest;
 import javax.websocket.server.ServerContainer;
 import javax.websocket.server.ServerEndpointConfig;
-
 import java.net.URI;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -116,9 +106,24 @@ public final class FakeNapCat implements AutoCloseable {
         // 端口选择：向内核借一个空闲端口（ServerSocket(0) 随机分配后立即归还）显式传给容器，
         // 并记入字段供 wsUrl() 直读——不依赖容器 getPort() 的查询语义（实测其在直用路径下
         // 可能返回未绑定标记 -1，或落到默认 8080）。借还之间存在极小竞态窗口，测试环境可接受。
+        // 注意必须先关 portProbe 再 start：try 块内直接调 start 会让探针握着端口绑定，
+        // Tomcat 随后绑同一端口必然「地址已在使用」。
+        int borrowedPort;
         try (java.net.ServerSocket portProbe = new java.net.ServerSocket(0)) {
-            this.port = portProbe.getLocalPort();
+            borrowedPort = portProbe.getLocalPort();
         }
+        start(borrowedPort);
+    }
+
+    /**
+     * 在指定端口上启动（「先拒绝后可连」剧本用）：测试先让接入层连接一个无人监听的固定端口
+     * （连接拒绝），再于同端口启动本假件接管——重连行为的测试需要端口在测试过程中从死到活。
+     *
+     * @throws DeploymentException   端点注册失败
+     * @throws IllegalStateException WebServer 启动后 ServerContainer 未装配（WsSci 没有随容器执行）
+     */
+    public void start(int fixedPort) throws Exception {
+        this.port = fixedPort;
         TomcatServletWebServerFactory factory = new TomcatServletWebServerFactory(port);
         // getWebServer 的返回值在 Boot 语义下已开始监听；其初始化回调等价于 war 部署中容器执行
         // ServletContainerInitializer 的阶段（动态注册 filter / listener 的合法窗口）。在此直接

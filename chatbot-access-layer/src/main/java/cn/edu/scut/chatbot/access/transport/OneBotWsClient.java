@@ -1,6 +1,5 @@
 package cn.edu.scut.chatbot.access.transport;
 
-import cn.edu.scut.chatbot.access.codec.InboundPipeline;
 import cn.edu.scut.chatbot.contract.error.ErrorCodes;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -16,13 +15,7 @@ import java.net.http.WebSocket;
 import java.nio.ByteBuffer;
 import java.time.Clock;
 import java.util.Map;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
@@ -43,6 +36,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * token 失败帧后断开；带 echo 的 1403 是对某次调用的业务失败回应，走投递失败回执，不判鉴权）；
  * 无失败帧而连续 N 次「连上即断」同样判定 token 错误——停止重连循环并告警
  * adapter.transport.auth_rejected，等待运维介入（无限重试 token 错误没有意义）。
+ *
+ * <p>「连上即断」的「连上」指<b>握手成功建立过的</b>连接：端口不可达、网络中断等
+ * 从未建立成功的失败（ConnectException）是网络问题，不参与该判定——否则协议端晚于接入层
+ * 启动的几十秒里就会误报 auth_rejected 永久停连，且表象完全误导排障方向。
  */
 @Component
 public class OneBotWsClient implements ApiResponseRouter, SmartLifecycle {
@@ -93,6 +90,11 @@ public class OneBotWsClient implements ApiResponseRouter, SmartLifecycle {
      * 当前连接的关闭信号（connectOnce 创建）：重连循环等它放行，判死 / ping 失败主动断开时也倒数它
      */
     private volatile CountDownLatch connectionClosedSignal;
+    /**
+     * 最近一次连接尝试是否成功完成过握手（join 返回才算）——「连上即断」判定只对
+     * 握手成功后被断开的连接有意义；从未建立成功的失败是网络问题，不判鉴权
+     */
+    private volatile boolean connectionEstablished;
     private volatile long connectedAtMillis;
     private volatile boolean receivedAnyFrameInConnection;
     /**
@@ -190,8 +192,8 @@ public class OneBotWsClient implements ApiResponseRouter, SmartLifecycle {
 
     private void connectOnce(CountDownLatch connectionClosed) {
         receivedAnyFrameInConnection = false;
+        connectionEstablished = false;
         ready = false;
-        connectedAtMillis = clock.millis();
 
         WebSocket.Builder builder = httpClient.newWebSocketBuilder();
         if (!accessToken.isBlank()) {
@@ -200,6 +202,10 @@ public class OneBotWsClient implements ApiResponseRouter, SmartLifecycle {
         WebSocket socket = builder
                 .buildAsync(URI.create(wsUrl), new FrameListener(connectionClosed))
                 .join();
+        // 握手成功才算「连上」：之后被断才可能是协议端因 token 主动踢；
+        // join 在此之前抛出的连接失败（端口不可达等）不参与「连上即断」判定
+        connectionEstablished = true;
+        connectedAtMillis = clock.millis();
         webSocket = socket;
         connectionClosedSignal = connectionClosed;
         lastActivityMillis = clock.millis();
@@ -224,10 +230,12 @@ public class OneBotWsClient implements ApiResponseRouter, SmartLifecycle {
     }
 
     /**
-     * 「连上即断」判定：连接窗口内未收到任何帧的断开连续 N 次 = token 错误
+     * 「连上即断」判定：握手成功建立过的连接，在窗口内未收到任何帧即断开，连续 N 次 = token 错误。
+     * 从未建立成功的连接失败（connectionEstablished=false）不参与——那是网络问题，交给退避重连
      */
     private synchronized void evaluateImmediateDisconnect() {
-        boolean immediate = !receivedAnyFrameInConnection
+        boolean immediate = connectionEstablished
+                && !receivedAnyFrameInConnection
                 && clock.millis() - connectedAtMillis < IMMEDIATE_DISCONNECT_WINDOW_MILLIS;
         if (immediate) {
             immediateDisconnectCount++;

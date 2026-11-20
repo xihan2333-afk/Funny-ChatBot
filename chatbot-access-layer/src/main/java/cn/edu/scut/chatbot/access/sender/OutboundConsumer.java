@@ -4,6 +4,7 @@ import cn.edu.scut.chatbot.access.archive.RawEventArchiver;
 import cn.edu.scut.chatbot.access.bootstrap.TraceContextHelper;
 import cn.edu.scut.chatbot.access.codec.EnvelopeCodec;
 import cn.edu.scut.chatbot.access.codec.EnvelopeValidator;
+import cn.edu.scut.chatbot.access.codec.MessageTextSummary;
 import cn.edu.scut.chatbot.access.infrastructure.ChatBotException;
 import cn.edu.scut.chatbot.access.infrastructure.GroupSerialExecutor;
 import cn.edu.scut.chatbot.access.infrastructure.StreamGateway;
@@ -14,10 +15,7 @@ import cn.edu.scut.chatbot.contract.envelope.PrimitiveTypeCodes;
 import cn.edu.scut.chatbot.contract.error.ErrorCodes;
 import cn.edu.scut.chatbot.contract.in.DeliveryFailureKindCodes;
 import cn.edu.scut.chatbot.contract.in.DeliveryReportPayload;
-import cn.edu.scut.chatbot.contract.out.RecallMessagePayload;
-import cn.edu.scut.chatbot.contract.out.SendGroupMessagePayload;
-import cn.edu.scut.chatbot.contract.out.SendInteractionReplyPayload;
-import cn.edu.scut.chatbot.contract.out.SetReactionPayload;
+import cn.edu.scut.chatbot.contract.out.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.opentelemetry.api.GlobalOpenTelemetry;
@@ -209,6 +207,9 @@ public class OutboundConsumer implements SmartLifecycle {
             log.info("recordId={} 已有在途投递任务（pending 重投竞争），本次跳过", message.recordId());
             return;
         }
+        log.info("收到出事件：recordId={}，outboxId={}，type={}，group={}，bot={}，内容={}",
+                message.recordId(), envelope.outboxId(), envelope.type(), envelope.groupId(),
+                envelope.botId(), outboundTextOf(envelope));
         groupSerialExecutor.submit(envelope.botId(), envelope.groupId(), envelope.userId(),
                 () -> {
                     try {
@@ -253,6 +254,9 @@ public class OutboundConsumer implements SmartLifecycle {
             }
             reportEmitted = emitReport(report, envelope.platform(), envelope.botId(),
                     envelope.outboxId(), envelope.traceContext());
+            log.info("出事件投递完成：outboxId={}，type={}，status={}，platformMessageId={}，retried={}",
+                    envelope.outboxId(), envelope.type(), report.status(),
+                    report.platformMessageId(), report.retried());
             if (reportEmitted) {
                 // 回执已落流才算完成：回执 XADD 失败时不 XACK，留给 pending 重投重新走全流程
                 acknowledge(recordId);
@@ -337,6 +341,19 @@ public class OutboundConsumer implements SmartLifecycle {
                 return reportFactory.failed(envelope.outboxId(),
                         DeliveryFailureKindCodes.INTERNAL, "出流出现非出原语 type=" + envelope.type(), false);
         }
+    }
+
+    /**
+     * 出站日志的消息内容：发送类事件打消息段摘要（文本 / @ / 媒体形态），非发送事件记 "-"
+     */
+    private String outboundTextOf(EventEnvelope envelope) {
+        if (envelope.payload() instanceof SendGroupMessagePayload send) {
+            return MessageTextSummary.ofParts(send.parts());
+        }
+        if (envelope.payload() instanceof SendPrivateMessagePayload send) {
+            return MessageTextSummary.ofParts(send.parts());
+        }
+        return "-";
     }
 
     /**

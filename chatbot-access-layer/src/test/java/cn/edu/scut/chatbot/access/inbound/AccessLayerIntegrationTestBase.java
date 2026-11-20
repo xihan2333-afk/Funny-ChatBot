@@ -90,6 +90,19 @@ public abstract class AccessLayerIntegrationTestBase {
     }
 
     /**
+     * 协议端地址覆盖口：默认 null（连基类共享的假协议端）；需要专线剧本的测试类
+     * （连接拒绝、连上即断等不共享假件的场景）在自己的静态块里赋值，例如
+     * {@code napcatWsUrlOverride = "ws://127.0.0.1:" + PORT + "/";}。
+     *
+     * <p>不走 @DynamicPropertySource 覆盖的原因（踩坑结论）：Spring 对同 key 的动态属性是
+     * 「先注册者赢」——基类的 middlewareProperties 先注册 access.napcat.ws-url，
+     * 子类再注册同 key 会被静默忽略，专线剧本根本不生效（接入层仍连共享假件）。
+     * 本字段在注册 lambda 里惰性读取，子类静态块（先于 Spring 上下文刷新）赋值即生效。
+     * 地址建议写 127.0.0.1 直连，不走 localhost 的 IPv6 优先解析，避免引入双栈回退变数。
+     */
+    protected static String napcatWsUrlOverride;
+
+    /**
      * 暂停 Redis 容器（模拟 Redis 停机——「落流成功才应答」场景的观察窗口）
      */
     protected static void pauseRedis() {
@@ -106,6 +119,10 @@ public abstract class AccessLayerIntegrationTestBase {
     @AfterAll
     static void stopFakeNapCatHeartbeat() {
         FAKE_NAPCAT.stopHeartbeat();
+        // 专线剧本覆盖口复位：静态字段在同 JVM 里跨测试类共享（failsafe 单 fork 顺序执行），
+        // 用过的类不清零会让后续类继续连专线死地址——共享假件的连接计数断言随之全部失真
+        // （实测踩坑：覆盖口残留导致 TransportReliabilityIT 等三类 20 秒超时全灭）
+        napcatWsUrlOverride = null;
     }
 
     /**
@@ -118,7 +135,8 @@ public abstract class AccessLayerIntegrationTestBase {
         registry.add("spring.datasource.password", MYSQL::getPassword);
         registry.add("spring.redis.host", REDIS::getHost);
         registry.add("spring.redis.port", () -> REDIS.getMappedPort(6379));
-        registry.add("access.napcat.ws-url", () -> FAKE_NAPCAT.wsUrl().toString());
+        registry.add("access.napcat.ws-url", () -> napcatWsUrlOverride != null
+                ? napcatWsUrlOverride : FAKE_NAPCAT.wsUrl().toString());
         registry.add("access.napcat.access-token", () -> NAPCAT_ACCESS_TOKEN);
         registry.add("access.napcat.expected-bot-id", () -> "10000");
     }
