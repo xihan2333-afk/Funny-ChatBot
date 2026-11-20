@@ -1,0 +1,11 @@
+{
+  "time": 1717200000,
+  "self_id": 10000,
+  "post_type": "notice",
+  "notice_type": "group_ban",
+  "sub_type": "ban",
+  "group_id": 123456789,
+  "user_id": 20002000,
+  "operator_id": 10000,
+  "duration": 300
+}

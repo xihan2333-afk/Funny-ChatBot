@@ -1,4 +1,11 @@
-# shell 脚本必须保持 LF，避免 core.autocrlf 转成 CRLF 后上传服务器无法执行
+# 换行符纪律（CLAUDE.md：shell 脚本必须保持 LF）
+# Windows 开发环境下统一约束：脚本与容器相关文件强制 LF，防 CRLF 破坏构建与运行
 *.sh text eol=lf
-# Maven wrapper 启动脚本是 shell 脚本，同样必须保持 LF
-mvnw text eol=lf
+Dockerfile text eol=lf
+*.dockerfile text eol=lf
+docker-compose*.yml text eol=lf
+compose*.yml text eol=lf
+.env* text eol=lf
+*.sql text eol=lf
+
+# Maven / Java 常规文本按平台默认处理即可

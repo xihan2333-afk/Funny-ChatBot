@@ -1,0 +1,25 @@
+{
+  "time": 1717200000,
+  "self_id": 10000,
+  "post_type": "message",
+  "message_type": "group",
+  "sub_type": "normal",
+  "message_id": 2233445,
+  "user_id": 10001000,
+  "group_id": 123456789,
+  "anonymous": null,
+  "message": "你好[CQ:face,id=1][CQ:image,file=a&amp;b.jpg,url=https://cdn.example.com/img?x=1&amp;y=2][CQ:at,qq=all]",
+  "raw_message": "你好[CQ:face,id=1][CQ:image,file=a&amp;b.jpg,url=https://cdn.example.com/img?x=1&amp;y=2][CQ:at,qq=all]",
+  "font": 0,
+  "sender": {
+    "user_id": 10001000,
+    "nickname": "滑稽",
+    "card": "",
+    "sex": "male",
+    "age": 20,
+    "area": "",
+    "level": "",
+    "role": "member",
+    "title": ""
+  }
+}

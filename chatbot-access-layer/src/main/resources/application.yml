@@ -1,17 +1,16 @@
 spring:
   application:
     name: access-layer
-  # 骨架阶段暂不连接中间件，接入真实环境时按下方模板补全（占位值以部署章为准）
-  # datasource:
-  #   url: jdbc:mysql://localhost:3306/chatbot?useUnicode=true&characterEncoding=utf8&connectionTimeZone=Asia/Shanghai
-  #   username: chatbot
-  #   password: ${CHATBOT_MYSQL_PASSWORD}
-  # redis:
-  #   host: localhost
-  #   port: 6379
+  # ===== 部署层配置（值来自 .env 环境变量，改了要重启；配置三层判定见设计方案 3.4.7）=====
+  datasource:
+    url: ${CHATBOT_MYSQL_URL:jdbc:mysql://localhost:3306/funnychat?useUnicode=true&characterEncoding=utf8&connectionTimeZone=Asia/Shanghai}
+    username: ${CHATBOT_MYSQL_USERNAME:root}
+    password: ${CHATBOT_MYSQL_PASSWORD:}
+  redis:
+    host: ${CHATBOT_REDIS_HOST:localhost}
+    port: ${CHATBOT_REDIS_PORT:6379}
 
 server:
-  # 骨架占位端口，最终以部署章端口分配为准
   port: 8081
 
 management:
@@ -27,3 +26,60 @@ mybatis:
   configuration:
     # 表蛇形命名、类驼峰（方案 3.2.1 规约）
     map-underscore-to-camel-case: true
+
+access:
+  # ===== 协议端连接（OneBot 11 正向 WS，契约 onebot-ws-adapter.md）=====
+  napcat:
+    # 事件路径：非 /api 的任意 path 上同一条连接既收事件也发 API 调用
+    ws-url: ${NAPCAT_WS_URL:ws://localhost:3001/}
+    access-token: ${ONEBOT_ACCESS_TOKEN:}
+    # 期望的 bot QQ 号（get_login_info 自检核对用；留空则不核对）
+    expected-bot-id: ${ACCESS_EXPECTED_BOT_ID:}
+  transport:
+    reconnect:
+      # 指数退避：1s 起步、每次 ×2、上限 60s；重连成功后退避重置
+      initial-backoff-millis: 1000
+      backoff-multiplier: 2
+      max-backoff-millis: 60000
+    heartbeat:
+      # 应用层心跳判死阈值 = 该倍数 × 协议端心跳间隔（心跳帧自身携带 interval 毫秒值；
+      # 协议端未发过心跳时按 30s 兜底估间隔）。超过阈值未收到任何平台事件即判定假死、主动断开重连
+      death-threshold-multiplier: 3
+      fallback-heart-interval-millis: 30000
+      # 协议层 WS ping 帧间隔（命名虚拟线程定时发送，发送失败即断开重连）
+      protocol-ping-interval-seconds: 30
+    # 鉴权失败判定：连续 N 次「连上即断」（无失败帧）视为 token 错误，停止重连并告警
+    auth-fail-connect-attempts: 3
+  # ===== 媒体转存（SafeFetcher 纪律：媒体 URL 属不可信输入）=====
+  media:
+    # 入方向同步转存限时（每媒体），超时即带 failed 状态立即入流不阻塞主流程
+    transfer-timeout-millis: 3000
+    # 转存落点的根目录（Docker 卷挂载点，compose 挂 deploy/volumes/access-layer/media/）
+    store-root: ${ACCESS_MEDIA_STORE_ROOT:./data/media}
+    # SafeFetcher 出站抓取纪律（FR-019 全量）：仅 https、私有网段拒绝、响应大小上限、逐跳重定向校验
+    max-download-bytes: 26214400
+    connect-timeout-millis: 3000
+    read-timeout-millis: 3000
+  # ===== Redis Stream 双流（契约 redis-streams.md）=====
+  stream:
+    in-key: chatbot:in:onebot-v11
+    out-key: chatbot:out:onebot-v11
+    # 出流消费组（接入层启动时 XGROUP CREATE MKSTREAM，已存在则忽略）
+    consumer-group: access-layer
+    # 消费者名（单实例部署默认即可；多实例时按实例编号区分）
+    consumer-name: access-layer-1
+    # XREADGROUP 阻塞读参数。BLOCK 必须小于 Redis 客户端命令超时（Lettuce 默认 60 秒），
+    # 否则每个无消息的空转周期都会先撞客户端超时报错再重试（空转变 ERROR 风暴），留 5 秒缓冲
+    block-millis: 55000
+    read-count: 16
+    # pending 重投：空闲超过阈值的未确认消息由 XCLAIM 认领重投
+    pending-idle-threshold-millis: 60000
+    pending-rescan-period-millis: 60000
+    # 投递次数超过该值记 adapter.stream.poison 告警（无死信队列，仍继续重投）
+    poison-delivery-count: 5
+  # ===== 出方向媒体装载上限（base64 内联前的文件大小护栏，防超大文件撑爆单帧）=====
+  outbound:
+    max-inline-media-bytes: 4194304
+  # ===== 雪花发号器（R3 决策：接入层机器号默认 2，与 agent-core 的 1 区分）=====
+  snowflake:
+    worker-id: ${ACCESS_WORKER_ID:2}

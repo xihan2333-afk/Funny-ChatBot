@@ -1,0 +1,9 @@
+{
+  "time": 1717200000,
+  "self_id": 10000,
+  "post_type": "request",
+  "request_type": "friend",
+  "user_id": 30003000,
+  "comment": "我是滑稽",
+  "flag": "FLAG-123456"
+}

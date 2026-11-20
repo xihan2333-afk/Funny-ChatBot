@@ -1,0 +1,32 @@
+{
+  "time": 1717200000,
+  "self_id": 10000,
+  "post_type": "message",
+  "message_type": "group",
+  "sub_type": "normal",
+  "message_id": 1110001,
+  "user_id": 10001000,
+  "group_id": 123456789,
+  "anonymous": null,
+  "message": [
+    {
+      "type": "text",
+      "data": {
+        "text": "今天天气不错"
+      }
+    }
+  ],
+  "raw_message": "今天天气不错",
+  "font": 0,
+  "sender": {
+    "user_id": 10001000,
+    "nickname": "滑稽",
+    "card": "群名片甲",
+    "sex": "male",
+    "age": 20,
+    "area": "广东",
+    "level": "10",
+    "role": "member",
+    "title": ""
+  }
+}

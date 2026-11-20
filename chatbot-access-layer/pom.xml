@@ -50,6 +50,16 @@
             <groupId>io.opentelemetry</groupId>
             <artifactId>opentelemetry-api</artifactId>
         </dependency>
+        <!--
+          测试域 SDK（版本根 pom 托管，与 api 同线）：集成测试 JVM 无 javaagent，测试基类全局注册
+          内存版 SDK 模拟生产挂 agent 的形态——EventTranslator 显式开 Span 的路径产生有效
+          traceparent，TraceContinuityIT 的 traceId 贯穿断言依赖它。
+        -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk</artifactId>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>io.opentelemetry.instrumentation</groupId>
             <artifactId>opentelemetry-logback-appender-1.0</artifactId>
@@ -66,6 +76,46 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- 异步断言一律 Awaitility（宪法第七条：禁 Thread.sleep）。版本 Boot 托管 -->
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 单元测试用 Spock（设计方案 4.1.3：单元 Spock / 集成 JUnit 5，同跑 JUnit Platform） -->
+        <dependency>
+            <groupId>org.spockframework</groupId>
+            <artifactId>spock-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.groovy</groupId>
+            <artifactId>groovy</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 集成测试真容器（宪法第七条：禁 H2 / 内嵌 Redis 替身）。Redis 用核心包 GenericContainer 起 -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>mysql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 接入隔离 ArchUnit 规则（宪法第五条） -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!--
+          假 NapCat 的内嵌 WS 服务端由 Spring Boot 内嵌 WebServer 承载（设计方案 4.1.2）：
+          TomcatServletWebServerFactory / WsSci / javax.websocket API 均已由
+          spring-boot-starter-web → spring-boot-starter-tomcat 传递引入（spring-boot 主 jar +
+          tomcat-embed-websocket），零新增依赖，此处注释说明来源，不重复声明。
+        -->
     </dependencies>
 
     <build>

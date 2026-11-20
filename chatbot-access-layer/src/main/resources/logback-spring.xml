@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- 接入层日志配置（宪法「日志与错误码绑定」：ERROR 级日志必须携带 errorCode 与 traceId）。
+     trace_id / span_id 由 OTel javaagent 的 logback 集成自动注入 MDC 字段
+     （依赖 opentelemetry-logback-appender-1.0 已在依赖矩阵登记）；未挂 agent 时字段为空串占位。 -->
+<configuration>
+
+    <property name="LOG_PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level traceId=%X{trace_id:-} spanId=%X{span_id:-} %logger{36} - %msg%n"/>
+
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${LOG_PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+</configuration>
