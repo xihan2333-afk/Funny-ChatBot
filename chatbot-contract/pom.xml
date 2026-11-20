@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>cn.edu.scut</groupId>
+        <artifactId>funny-chatbot</artifactId>
+        <version>1.0.0</version>
+    </parent>
+
+    <artifactId>chatbot-contract</artifactId>
+    <name>chatbot-contract</name>
+    <description>事件信封、顶级原语、统一错误码。纯 record，只依赖 JDK，零框架依赖、零行为逻辑</description>
+
+    <!--
+      契约模块刻意不声明任何依赖：接入层与主服务唯一的共享面。
+      ArchUnit 规则「contract 纯净」会验证这里的类不依赖 JDK 以外的任何包。
+    -->
+
+</project>

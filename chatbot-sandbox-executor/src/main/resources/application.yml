@@ -1,0 +1,26 @@
+spring:
+  application:
+    name: sandbox-executor
+  # 骨架阶段暂不连接中间件，接入真实环境时按下方模板补全（占位值以部署章为准）
+  # datasource:
+  #   url: jdbc:mysql://localhost:3306/chatbot?useUnicode=true&characterEncoding=utf8&connectionTimeZone=Asia/Shanghai
+  #   username: chatbot
+  #   password: ${CHATBOT_MYSQL_PASSWORD}
+
+server:
+  # 骨架占位端口，最终以部署章端口分配为准
+  port: 8082
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # compose 健康检查依赖 health 端点判断 healthy（部署章 2.8）
+        include: health
+
+mybatis:
+  # SQL 全部走 XML，集中在 mapper 目录，接口上不写注解 SQL（方案 3.2.1 规约）
+  mapper-locations: classpath:mapper/*.xml
+  configuration:
+    # 表蛇形命名、类驼峰（方案 3.2.1 规约）
+    map-underscore-to-camel-case: true

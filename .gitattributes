@@ -1,2 +1,4 @@
 # shell 脚本必须保持 LF，避免 core.autocrlf 转成 CRLF 后上传服务器无法执行
 *.sh text eol=lf
+# Maven wrapper 启动脚本是 shell 脚本，同样必须保持 LF
+mvnw text eol=lf
