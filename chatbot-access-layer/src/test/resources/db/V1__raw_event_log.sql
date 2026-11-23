@@ -1,6 +1,9 @@
 -- 接入域唯一表（设计方案 3.3.1 逐字誊写）。
--- 正式归属：agent-core 的 Flyway 首版迁移脚本；本 feature 联调期间以测试资源形态提供，
--- 集成测试由 Testcontainers 执行本脚本建表，合入时归位 agent-core。
+-- ⚠️ 事实源已归位：chatbot-agent-core/src/main/resources/db/migration/V1__raw_event_log.sql
+-- （002 feature 起 agent-core 持有 Flyway 单一建表权）。本文件是 access-layer 测试域副本，
+-- 接入隔离规约禁止其依赖 agent-core 任何资源（含 test-jar），跨模块复制是唯一合规方式；
+-- 两份内容漂移由接入层侧契约测试守（research R8 决策，002 research.md）。
+
 CREATE TABLE raw_event_log
 (
     id          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,

@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.engine.effect.EffectsQueueMapper">
+
+    <insert id="enqueueMerge">
+        INSERT INTO effects_queue
+        (platform, bot_id, group_id, kind, payload, status, retry_count, next_run_at)
+        VALUES (#{platform}, #{botId}, #{groupId}, #{kind}, #{payload}, 'pending', 0, #{nextRunAt}) ON DUPLICATE KEY
+        UPDATE
+            payload =
+        VALUES (payload), status = 'pending', next_run_at =
+        VALUES (next_run_at)
+    </insert>
+
+    <select id="selectDue" resultType="cn.edu.scut.chatbot.engine.effect.EffectsQueueDO">
+        SELECT id,
+               platform,
+               bot_id      AS botId,
+               group_id    AS groupId,
+               kind,
+               payload,
+               status,
+               retry_count AS retryCount,
+               next_run_at AS nextRunAt,
+               created_at  AS createdAt,
+               updated_at  AS updatedAt
+        FROM effects_queue
+        WHERE status = 'pending'
+          AND next_run_at &lt;= #{now}
+        ORDER BY next_run_at
+            LIMIT #{limit}
+    </select>
+
+    <update id="claimForRun">
+        UPDATE effects_queue
+        SET status     = 'running',
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND status = 'pending'
+    </update>
+
+    <delete id="deleteById">
+        DELETE
+        FROM effects_queue
+        WHERE id = #{id}
+    </delete>
+
+    <update id="scheduleRetry">
+        UPDATE effects_queue
+        SET status      = 'pending',
+            retry_count = #{retryCount},
+            next_run_at = #{nextRunAt}
+        WHERE id = #{id}
+    </update>
+
+    <update id="markFailed">
+        UPDATE effects_queue
+        SET status = 'failed'
+        WHERE id = #{id}
+    </update>
+
+    <update id="recoverRunningToPending">
+        UPDATE effects_queue
+        SET status = 'pending'
+        WHERE status = 'running'
+    </update>
+
+    <select id="selectByMergeKey" resultType="cn.edu.scut.chatbot.engine.effect.EffectsQueueDO">
+        SELECT id,
+               platform,
+               bot_id      AS botId,
+               group_id    AS groupId,
+               kind,
+               payload,
+               status,
+               retry_count AS retryCount,
+               next_run_at AS nextRunAt,
+               created_at  AS createdAt,
+               updated_at  AS updatedAt
+        FROM effects_queue
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+          AND kind = #{kind}
+    </select>
+
+    <select id="countAll" resultType="long">
+        SELECT COUNT(*)
+        FROM effects_queue
+    </select>
+
+</mapper>

@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.engine.session.AgentSessionMapper">
+
+    <insert id="insertSession">
+        INSERT
+        IGNORE INTO agent_session
+        (platform, bot_id, group_id, persona_id, lifecycle, window_level)
+        VALUES (
+        #{platform},
+        #{botId},
+        #{groupId},
+        #{personaId},
+        #{lifecycle},
+        #{windowLevel}
+        )
+    </insert>
+
+    <select id="selectByGroup" resultType="cn.edu.scut.chatbot.engine.session.AgentSessionDO">
+        SELECT id,
+               platform,
+               bot_id           AS botId,
+               group_id         AS groupId,
+               persona_id       AS personaId,
+               lifecycle,
+               window_level     AS windowLevel,
+               emotion,
+               summary_entry_id AS summaryEntryId,
+               created_at       AS createdAt,
+               updated_at       AS updatedAt
+        FROM agent_session
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+    </select>
+
+    <update id="updatePersona">
+        UPDATE agent_session
+        SET persona_id = #{personaId}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateWindowLevel">
+        UPDATE agent_session
+        SET window_level = #{windowLevel}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateEmotion">
+        UPDATE agent_session
+        SET emotion = #{emotion}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateSummaryPointer">
+        UPDATE agent_session
+        SET summary_entry_id = #{summaryEntryId}
+        WHERE id = #{id}
+    </update>
+
+    <update id="markDestroyed">
+        UPDATE agent_session
+        SET lifecycle = 'DESTROYED'
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+    </update>
+
+    <!-- ===== transcript_entry：只增不改 ===== -->
+
+    <insert id="insertTranscriptBatch">
+        INSERT INTO transcript_entry
+        (id, session_id, platform, bot_id, group_id, kind, payload, weight, occurred_at, run_id)
+        VALUES
+        <foreach collection="entries" item="entry" separator=",">
+            (#{entry.id}, #{entry.sessionId}, #{entry.platform}, #{entry.botId}, #{entry.groupId},
+            #{entry.kind}, #{entry.payload}, #{entry.weight}, #{entry.occurredAt}, #{entry.runId})
+        </foreach>
+    </insert>
+
+    <select id="selectRecent" resultType="cn.edu.scut.chatbot.engine.session.TranscriptEntryDO">
+        SELECT id,
+               session_id  AS sessionId,
+               platform,
+               bot_id      AS botId,
+               group_id    AS groupId,
+               kind,
+               payload,
+               weight,
+               occurred_at AS occurredAt,
+               run_id      AS runId
+        FROM transcript_entry
+        WHERE session_id = #{sessionId}
+        ORDER BY occurred_at DESC
+            LIMIT #{limit}
+    </select>
+
+    <select id="selectOrdered" resultType="cn.edu.scut.chatbot.engine.session.TranscriptEntryDO">
+        SELECT id,
+               session_id  AS sessionId,
+               platform,
+               bot_id      AS botId,
+               group_id    AS groupId,
+               kind,
+               payload,
+               weight,
+               occurred_at AS occurredAt,
+               run_id      AS runId
+        FROM transcript_entry
+        WHERE session_id = #{sessionId}
+        ORDER BY occurred_at
+    </select>
+
+    <select id="selectByRun" resultType="cn.edu.scut.chatbot.engine.session.TranscriptEntryDO">
+        SELECT id,
+               session_id  AS sessionId,
+               platform,
+               bot_id      AS botId,
+               group_id    AS groupId,
+               kind,
+               payload,
+               weight,
+               occurred_at AS occurredAt,
+               run_id      AS runId
+        FROM transcript_entry
+        WHERE run_id = #{runId}
+        ORDER BY occurred_at
+    </select>
+
+</mapper>

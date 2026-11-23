@@ -1,0 +1,15 @@
+# 构建上下文裁剪（compose 的 build context 是仓库根——只拷需要的进构建层）
+.git/
+.idea/
+.vscode/
+.claude/
+.specify/
+chatbot-admin-web/
+deploy/volumes/
+*/target/
+target/
+*.log
+.env
+.env.*
+!.env.example
+data/

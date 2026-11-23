@@ -1,14 +1,13 @@
 spring:
   application:
     name: sandbox-executor
-  # 骨架阶段暂不连接中间件，接入真实环境时按下方模板补全（占位值以部署章为准）
-  # datasource:
-  #   url: jdbc:mysql://localhost:3306/chatbot?useUnicode=true&characterEncoding=utf8&connectionTimeZone=Asia/Shanghai
-  #   username: chatbot
-  #   password: ${CHATBOT_MYSQL_PASSWORD}
+  # ===== 部署层配置（值来自 .env 环境变量，改了要重启）=====
+  datasource:
+    url: ${CHATBOT_MYSQL_URL:jdbc:mysql://localhost:3306/funnychat?useUnicode=true&characterEncoding=utf8&connectionTimeZone=Asia/Shanghai}
+    username: ${CHATBOT_MYSQL_USERNAME:root}
+    password: ${CHATBOT_MYSQL_PASSWORD:}
 
 server:
-  # 骨架占位端口，最终以部署章端口分配为准
   port: 8082
 
 management:
@@ -24,3 +23,23 @@ mybatis:
   configuration:
     # 表蛇形命名、类驼峰（方案 3.2.1 规约）
     map-underscore-to-camel-case: true
+
+sandbox:
+  # ===== Docker 连接（默认接管本机 docker.sock；compose 内挂 /var/run/docker.sock）=====
+  docker:
+    host: ${DOCKER_HOST:unix:///var/run/docker.sock}
+  # ===== 沙箱限制默认值（请求 limits 未带时兜底；契约 sandbox-executor-api.md）=====
+  defaults:
+    image: python:3.11-slim
+    mem-mb: 256
+    cpu-cores: 0.5
+    pids: 64
+    wall-timeout-sec: 10
+    # 墙钟超时上限（请求值超过即钳制到该值）
+    max-wall-timeout-sec: 30
+    # stdout / stderr 各截断至 8KB，截断时尾部注明
+    output-truncate-bytes: 8192
+    # 容器内写入区 tmpfs 大小
+    tmpfs-size-mb: 64
+  # ===== 全局并发上限（服务端信号量，第三个请求排队；契约第 3 节）=====
+  max-concurrency: 2

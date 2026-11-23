@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.skill.SkillMapper">
+
+    <select id="selectAll" resultType="cn.edu.scut.chatbot.skill.SkillDO">
+        SELECT id,
+               name,
+               description,
+               content,
+               enabled,
+               status,
+               version_no AS versionNo,
+               created_at AS createdAt,
+               updated_at AS updatedAt
+        FROM skill
+        ORDER BY name
+    </select>
+
+    <select id="selectByName" resultType="cn.edu.scut.chatbot.skill.SkillDO">
+        SELECT id,
+               name,
+               description,
+               content,
+               enabled,
+               status,
+               version_no AS versionNo,
+               created_at AS createdAt,
+               updated_at AS updatedAt
+        FROM skill
+        WHERE name = #{name}
+    </select>
+
+    <insert id="insertSkill">
+        INSERT INTO skill (name, description, content, enabled, status, version_no)
+        VALUES (#{name}, #{description}, #{content}, #{enabled}, #{status}, #{versionNo})
+    </insert>
+
+    <update id="updateSkill">
+        UPDATE skill
+        SET description = #{description},
+            content     = #{content},
+            enabled     = #{enabled},
+            status      = #{status},
+            version_no  = #{versionNo}
+        WHERE name = #{name}
+    </update>
+
+    <delete id="deleteByName">
+        DELETE
+        FROM skill
+        WHERE name = #{name}
+    </delete>
+
+</mapper>

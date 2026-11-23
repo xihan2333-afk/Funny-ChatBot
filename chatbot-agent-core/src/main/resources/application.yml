@@ -1,19 +1,22 @@
 spring:
   application:
     name: agent-core
-  # 骨架阶段暂不连接中间件，接入真实环境时按下方模板补全（占位值以部署章为准）
-  # datasource:
-  #   url: jdbc:mysql://localhost:3306/chatbot?useUnicode=true&characterEncoding=utf8&connectionTimeZone=Asia/Shanghai
-  #   username: chatbot
-  #   password: ${CHATBOT_MYSQL_PASSWORD}
-  #   hikari:
-  #     maximum-pool-size: 10
-  # redis:
-  #   host: localhost
-  #   port: 6379
+  # ===== 部署层配置（值来自 .env 环境变量，改了要重启；配置三层判定见设计方案 3.4.7）=====
+  datasource:
+    url: ${CHATBOT_MYSQL_URL:jdbc:mysql://localhost:3306/funnychat?useUnicode=true&characterEncoding=utf8&connectionTimeZone=Asia/Shanghai}
+    username: ${CHATBOT_MYSQL_USERNAME:root}
+    password: ${CHATBOT_MYSQL_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10
+  redis:
+    host: ${CHATBOT_REDIS_HOST:localhost}
+    port: ${CHATBOT_REDIS_PORT:6379}
+  # ===== Flyway 表结构迁移（脚本在 classpath:db/migration，前向只增不改）=====
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
 
 server:
-  # 骨架占位端口，最终以部署章端口分配为准
   port: 8080
 
 management:
@@ -30,5 +33,57 @@ mybatis:
     # 表蛇形命名、类驼峰（方案 3.2.1 规约）
     map-underscore-to-camel-case: true
 
-# flyway:
-#   脚本在 classpath:db/migration，命名 V{序号}__{描述}.sql，首版 V1__init_schema.sql
+agent:
+  # ===== 入流消费（契约 redis-streams-agent-core.md；参数与接入层消费出流同构）=====
+  stream:
+    in-key: chatbot:in:onebot-v11
+    out-key: chatbot:out:onebot-v11
+    # 入流消费组（agent-core 启动时 XGROUP CREATE MKSTREAM，已存在则忽略）
+    consumer-group: agent-core
+    consumer-name: agent-core-1
+    # BLOCK 必须小于 Lettuce 默认 60 秒命令超时，留 5 秒缓冲避免空转周期撞客户端超时
+    block-millis: 55000
+    read-count: 16
+    # pending 重投：空闲超阈值的未确认消息由 XCLAIM 认领重投（与接入层 60 秒默认一致）
+    pending-idle-threshold-millis: 60000
+    pending-rescan-period-millis: 60000
+    poison-delivery-count: 5
+  # ===== Effects 副作用队列（DB 队列扫描模式，不引消息队列）=====
+  effect:
+    # 扫描间隔 500ms：due 动作在秒级内被拾起（设计方案性能目标）
+    scan-interval-millis: 500
+    # 单轮扫描最多取多少条 due 行（防单轮拖长）
+    scan-batch-size: 32
+    # 退避基数 2^n 秒、封顶 10 分钟；重试超 5 次置 failed 落告警
+    backoff-base-seconds: 2
+    backoff-max-seconds: 600
+    max-retry-count: 5
+  # ===== Worker 并发（全局信号量，提交侧闸；system_param 可配则运行层优先）=====
+  worker:
+    max-concurrency: 2
+    # 交付类等待推理权超过该阈值提升队头优先（不被新 Turn 饿死）
+    delivery-wait-boost-millis: 30000
+  # ===== Turn 排队（单飞原则：每群至多一个 GENERATING/SETTLING）=====
+  turn:
+    queue-max-per-group: 8
+    queue-timeout-millis: 60000
+  # ===== 上下文窗口默认参数（system_param 可覆盖的静态兜底值，data-model 第 13 节）=====
+  context:
+    window-active-tokens: 24576
+    window-quiet-tokens: 8192
+    anchor-size: 20
+    max-entry-lines: 2000
+    max-entry-bytes: 6144
+    max-line-chars: 400
+    group-message-max-chars: 2000
+    transcript-retain-days: 30
+  # ===== 雪花发号器（agent-core 机器号默认 1，与接入层默认 2 区分）=====
+  snowflake:
+    worker-id: ${AGENT_WORKER_ID:1}
+  # ===== L1 评估（指数退避重试，耗尽保守 ignore）=====
+  gate:
+    l1-max-retry: 3
+    l1-backoff-base-millis: 500
+  # ===== 群状态 Hash 只读写 L0/调度最小字段集（键位契约 redis-streams 第 3 节）=====
+  cooldown-millis: 8000
+  rate-limit-per-minute: 6
