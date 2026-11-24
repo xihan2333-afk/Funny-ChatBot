@@ -53,6 +53,11 @@ public class BoundedEventListener implements LoopEventListener {
     private final Thread consumerThread;
 
     /**
+     * 关闭标志（Run 结束时置位——消费线程退出，杜绝空转虚拟线程泄漏）
+     */
+    private volatile boolean closed = false;
+
+    /**
      * 生产构造：后台消费线程随建随启
      */
     public BoundedEventListener() {
@@ -74,6 +79,17 @@ public class BoundedEventListener implements LoopEventListener {
      */
     public void addBackgroundConsumer(LoopEventListener consumer) {
         backgroundConsumers.add(consumer);
+    }
+
+    /**
+     * 关闭监听器：排空残余事件后停消费线程（Run 结束调用——一个 Run 一个监听器，
+     * 不关闭则每次 Run 泄漏一个空转虚拟线程）
+     */
+    public void close() {
+        closed = true;
+        if (consumerThread != null) {
+            consumerThread.interrupt();
+        }
     }
 
     /**
@@ -100,13 +116,18 @@ public class BoundedEventListener implements LoopEventListener {
     }
 
     /**
-     * 后台消费循环：单命名虚拟线程逐条派发给消费者；消费者异常不外溢
+     * 后台消费循环：单命名虚拟线程逐条派发给消费者；消费者异常不外溢。
+     * 关闭后转入非阻塞排空模式：残余事件送完（观测事件尽量送达）才退出——
+     * close 的 interrupt 只是唤醒手段，不是丢弃信号
      */
     private void drainLoop() {
         while (true) {
             try {
-                LoopEvent event = queue.poll(60, TimeUnit.SECONDS);
+                LoopEvent event = closed ? queue.poll() : queue.poll(60, TimeUnit.SECONDS);
                 if (event == null) {
+                    if (closed) {
+                        return;   // 已关闭且队列无残余：正常退出
+                    }
                     continue;
                 }
                 deliveredCount.incrementAndGet();
@@ -119,7 +140,9 @@ public class BoundedEventListener implements LoopEventListener {
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                return;
+                if (closed) {
+                    continue;   // 关闭唤醒：回到非阻塞排空分支送完残余
+                }
             } catch (Exception e) {
                 log.warn("循环事件后台消费循环异常（继续）", e);
             }

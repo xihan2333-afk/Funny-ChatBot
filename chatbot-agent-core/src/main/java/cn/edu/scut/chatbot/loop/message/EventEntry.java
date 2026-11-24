@@ -29,6 +29,16 @@ public record EventEntry(
     public static final String CATEGORY_INTERACTION = "interaction";
     public static final int WEIGHT_INTERACTION = 20;
 
+    /**
+     * 群维度事件（群信息变更等）
+     */
+    public static final String CATEGORY_GROUP_CHANGE = "groupChange";
+
+    /**
+     * Bot 自身事件（被禁言/掉线等——对人格是"与自己有关的事"）
+     */
+    public static final String CATEGORY_BOT_EVENT = "botEvent";
+
     @Override
     public AgentMessageKind kind() {
         return AgentMessageKind.EVENT;

@@ -151,7 +151,7 @@ public class PromptAssembler {
     }
 
     /**
-     * 变量集组装（身份层素材：人格名等）
+     * 变量集组装（身份层素材：人格名；技能目录过滤上下文：群级禁用技能清单）
      */
     private Map<String, String> buildVariables(String platform, String botId, String groupId) {
         Map<String, String> variables = new LinkedHashMap<>();
@@ -160,7 +160,32 @@ public class PromptAssembler {
             variables.put("persona.name", persona.getName());
             variables.put("persona.selfSetting", personaResolver.selfSettingOf(persona));
         }
+        variables.put("__skillContext__", disabledSkillsOf(platform, botId, groupId));
         return variables;
+    }
+
+    /**
+     * 群级禁用技能清单 → 技能目录过滤上下文（"skill1,skill2" 逗号分隔；空清单为 null 不过滤）
+     */
+    private String disabledSkillsOf(String platform, String botId, String groupId) {
+        if (groupId == null) {
+            return null;
+        }
+        GroupConfigDO config = groupConfigMapper.selectByGroup(platform, botId, groupId);
+        if (config == null || config.getDisabledSkills() == null
+                || "[]".equals(config.getDisabledSkills())) {
+            return null;
+        }
+        try {
+            List<String> disabled = cn.edu.scut.chatbot.bootstrap.JsonMappers.shared().readValue(
+                    config.getDisabledSkills(),
+                    cn.edu.scut.chatbot.bootstrap.JsonMappers.shared().getTypeFactory()
+                            .constructCollectionType(List.class, String.class));
+            return disabled == null || disabled.isEmpty() ? null : String.join(",", disabled);
+        } catch (Exception e) {
+            log.warn("群级禁用技能清单解析失败按空处理", e);
+            return null;
+        }
     }
 
     /**

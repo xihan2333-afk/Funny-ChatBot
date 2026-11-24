@@ -1,11 +1,9 @@
 package cn.edu.scut.chatbot.context.compaction;
 
 import cn.edu.scut.chatbot.bootstrap.IdGenerator;
-import cn.edu.scut.chatbot.context.window.TokenEstimator;
 import cn.edu.scut.chatbot.engine.session.AgentSessionDO;
 import cn.edu.scut.chatbot.engine.session.AgentSessionMapper;
 import cn.edu.scut.chatbot.engine.session.SessionManager;
-import cn.edu.scut.chatbot.engine.session.TranscriptEntryDO;
 import cn.edu.scut.chatbot.loop.message.AgentMessage;
 import cn.edu.scut.chatbot.loop.message.AssistantMessage;
 import cn.edu.scut.chatbot.loop.message.SummaryEntry;
@@ -48,15 +46,18 @@ public class TranscriptCompactor {
     private final AgentSessionMapper sessionMapper;
     private final IdGenerator idGenerator;
     private final Clock clock;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     public TranscriptCompactor(SessionManager sessionManager,
                                AgentSessionMapper sessionMapper,
                                IdGenerator idGenerator,
-                               Clock clock) {
+                               Clock clock,
+                               org.springframework.context.ApplicationEventPublisher eventPublisher) {
         this.sessionManager = sessionManager;
         this.sessionMapper = sessionMapper;
         this.idGenerator = idGenerator;
         this.clock = clock;
+        this.eventPublisher = eventPublisher;
     }
 
     /**
@@ -102,8 +103,16 @@ public class TranscriptCompactor {
         sessionManager.appendTranscript(session, List.of(newSummary), null);
         sessionMapper.updateSummaryPointer(session.getId(), Long.parseLong(newSummary.messageId()));
 
-        // 水位降档判断：持续高水位降到 quiet（活跃群回 active 由互动驱动，2.4 演进）
-        log.info("会话压缩完成 sessionId={} 压缩 {} 条为新摘要", session.getId(), compacting.size());
+        // 水位降档：持续高水位压缩后降到 quiet 落库（投影读 session 档位——多群各持各档；
+        // 活跃群回 active 由群状态互动驱动，2.4 演进）
+        sessionMapper.updateWindowLevel(session.getId(), AgentSessionDO.WINDOW_QUIET);
+        log.info("会话压缩完成 sessionId={} 压缩 {} 条为新摘要，窗口降档 quiet",
+                session.getId(), compacting.size());
+
+        // 沉淀提示事件（2.2 发、2.4 消费——是否沉淀是记忆系统的自由）
+        eventPublisher.publishEvent(new SedimentSuggestionEvent(
+                session.getPlatform(), session.getBotId(), session.getGroupId(),
+                newSummary.messageId(), compacting.size()));
         return newSummary;
     }
 

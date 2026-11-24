@@ -1,8 +1,14 @@
-// 守护纪律：压缩切点永不落工具对中间（spec US7 验收场景 2）；五段摘要结构；增量合并
+// 守护纪律：压缩切点永不落工具对中间（spec US7 验收场景 2）；五段摘要结构；增量合并；
+// 压缩完成降档 quiet + 发"建议沉淀"事件（发不反向耦合消费方进度）
 package cn.edu.scut.chatbot.context.compaction
 
-import cn.edu.scut.chatbot.loop.message.AgentMessage
+import cn.edu.scut.chatbot.engine.session.AgentSessionDO
+import cn.edu.scut.chatbot.engine.session.AgentSessionMapper
+import cn.edu.scut.chatbot.engine.session.SessionManager
+import cn.edu.scut.chatbot.fixtures.FixedClock
+import cn.edu.scut.chatbot.fixtures.SeededIdGenerator
 import cn.edu.scut.chatbot.loop.message.AssistantMessage
+import cn.edu.scut.chatbot.loop.message.SummaryEntry
 import cn.edu.scut.chatbot.loop.message.ToolResultMessage
 import cn.edu.scut.chatbot.loop.message.UserMessage
 import spock.lang.Specification
@@ -11,7 +17,7 @@ import java.time.Instant
 
 class CompactionTest extends Specification {
 
-    def compactor = new TranscriptCompactor(null, null, null, null)
+    def compactor = new TranscriptCompactor(null, null, null, null, { event -> })
 
     private UserMessage user(String id, int offset) {
         return new UserMessage(id, Instant.ofEpochSecond(1775000000 + offset), 50, null, "10086",
@@ -115,5 +121,75 @@ class CompactionTest extends Specification {
             }
             return true
         }
+    }
+
+    def "压缩完成：摘要入转录更新指针 窗口降档quiet落库 发建议沉淀事件"() {
+        given: "40 条纯用户消息转录（> 近端保留 30 条，压缩区 10 条）"
+        def sessionManager = Mock(SessionManager)
+        def sessionMapper = Mock(AgentSessionMapper)
+        def events = []
+        def pointerValues = []
+        def fullCompactor = new TranscriptCompactor(sessionManager, sessionMapper,
+                new SeededIdGenerator(), new FixedClock(), { event -> events << event } as org.springframework.context.ApplicationEventPublisher)
+        def transcript = (1..40).collect { i -> user("u" + i, i) }
+        sessionManager.loadTranscript(_ as AgentSessionDO) >> transcript
+        def session = new AgentSessionDO()
+        session.setId(555L)
+        session.setPlatform("qq")
+        session.setBotId("10000")
+        session.setGroupId("80001")
+
+        when:
+        def summary = fullCompactor.compactIfNeeded(session, 99999, 1000)
+
+        then: "新摘要条目追加转录（单条 SummaryEntry）"
+        summary != null
+        summary.summaryText().contains("讨论参与者")
+        1 * sessionManager.appendTranscript(_ as AgentSessionDO, { List batch ->
+            batch.size() == 1 && batch[0] instanceof SummaryEntry
+        }, null)
+
+        and: "指针指向新摘要（值经捕获闭包带出，联动断言用普通条件——interaction 参数不能引用 when 局部）"
+        1 * sessionMapper.updateSummaryPointer(555L, { Long pointer ->
+            pointerValues << pointer
+            true
+        })
+        pointerValues == [Long.parseLong(summary.messageId())]
+
+        and: "窗口水位降档 quiet 落库（投影读会话档位——多群各持各档）"
+        1 * sessionMapper.updateWindowLevel(555L, AgentSessionDO.WINDOW_QUIET)
+
+        and: "发建议沉淀事件：群标识 + 摘要条目锚点 + 压缩体量（消费与否是记忆系统的自由）"
+        events.size() == 1
+        def event = events[0] as SedimentSuggestionEvent
+        event.platform() == "qq"
+        event.botId() == "10000"
+        event.groupId() == "80001"
+        event.summaryEntryId() == summary.messageId()
+        event.compactedCount() == 10
+    }
+
+    def "未到触发线不压缩：不降档不发事件不动转录"() {
+        given:
+        def sessionManager = Mock(SessionManager)
+        def sessionMapper = Mock(AgentSessionMapper)
+        def events = []
+        def fullCompactor = new TranscriptCompactor(sessionManager, sessionMapper,
+                new SeededIdGenerator(), new FixedClock(), { event -> events << event } as org.springframework.context.ApplicationEventPublisher)
+        def session = new AgentSessionDO()
+        session.setId(555L)
+        session.setPlatform("qq")
+        session.setBotId("10000")
+        session.setGroupId("80001")
+
+        when: "投影量未超触发线"
+        def summary = fullCompactor.compactIfNeeded(session, 500, 1000)
+
+        then:
+        summary == null
+        events.isEmpty()
+        0 * sessionMapper.updateWindowLevel(_, _)
+        0 * sessionMapper.updateSummaryPointer(_, _)
+        0 * sessionManager.appendTranscript(_, _, _)
     }
 }

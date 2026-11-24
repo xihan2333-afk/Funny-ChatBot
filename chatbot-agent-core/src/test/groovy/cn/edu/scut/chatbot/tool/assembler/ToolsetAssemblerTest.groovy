@@ -45,20 +45,49 @@ class ToolsetAssemblerTest extends Specification {
         assembled.collect { it.descriptor().name() } as Set == ["sendMessage", "fetchWeb"] as Set
     }
 
-    def "Worker形态全量但无 sendMessage（负向断言）"() {
-        given:
-        toolsAvailable([sendMessage: StubTool.sendMessageTool(),
-                        fetchWeb   : tool("fetchWeb", ToolDescriptor.ToolSpeed.FAST),
-                        runCode    : tool("runCode", ToolDescriptor.ToolSpeed.SLOW)])
+    def "Worker形态按归属白名单装配：白名单慢工具在 读群类快工具不在 HTTP泛化天然在 sendMessage绝不在"() {
+        given: "白名单内慢工具 runCode、非白名单读群类快工具 queryHistory、HTTP 泛化工具、sendMessage"
+        toolsAvailable([sendMessage : StubTool.sendMessageTool(),
+                        runCode     : tool("runCode", ToolDescriptor.ToolSpeed.SLOW),
+                        queryHistory: tool("queryHistory", ToolDescriptor.ToolSpeed.FAST),
+                        httpWeather : httpGenericTool("httpWeather", ToolDescriptor.ToolSpeed.FAST)])
         groupConfigMapper.selectByGroup(*_) >> null
 
         when:
-        def assembled = assembler.assemble(RunConfig.ExecutionForm.WORKER, "qq", "10000", "80001")
-        def names = assembled.collect { it.descriptor().name() }
+        def names = assembler.assemble(RunConfig.ExecutionForm.WORKER, "qq", "10000", "80001")
+                .collect { it.descriptor().name() } as Set
 
-        then:
-        names.contains("runCode")          // 全量（慢工具也在）
-        !names.contains("sendMessage")     // 但绝无 sendMessage
+        then: "第四步是 Worker 归属白名单（设计 2.2.3.7）：白名单工具 + HTTP 泛化在列"
+        names.contains("runCode")
+        names.contains("httpWeather")
+        and: "读群类快工具不在 Worker 工具集（Worker 输入自包含，不读群聊）"
+        !names.contains("queryHistory")
+        and: "sendMessage 不在白名单——发言出口只属于面向群聊的形态（负向断言必测）"
+        !names.contains("sendMessage")
+    }
+
+    def "白名单只是Worker的口径：Turn形态保留非白名单快工具"() {
+        given:
+        toolsAvailable([queryHistory: tool("queryHistory", ToolDescriptor.ToolSpeed.FAST),
+                        runCode     : tool("runCode", ToolDescriptor.ToolSpeed.SLOW)])
+        groupConfigMapper.selectByGroup(*_) >> null
+
+        when:
+        def names = assembler.assemble(RunConfig.ExecutionForm.TURN, "qq", "10000", "80001")
+                .collect { it.descriptor().name() } as Set
+
+        then: "Turn 不做归属裁配：快工具在（慢工具仍被第二步排除）"
+        names == ["queryHistory"] as Set
+    }
+
+    private AgentTool httpGenericTool(String name, ToolDescriptor.ToolSpeed speed) {
+        return new StubTool(name) {
+            @Override
+            ToolDescriptor descriptor() {
+                return new ToolDescriptor(name, "泛化工具", "{\"type\":\"object\"}", speed,
+                        ToolDescriptor.EffectKind.EXTERNAL_API, ToolDescriptor.ToolSource.HTTP_GENERIC, false)
+            }
+        }
     }
 
     def "全局禁用的工具不装配（第一步）"() {

@@ -40,8 +40,10 @@ class SystemParamServiceTest extends Specification {
         def loadCount = 0
         mapper.selectAll() >> {
             loadCount++
-            loadCount == 1?[param("gate.rate_limit_per_minute", "6")]
-            : [param("gate.rate_limit_per_minute", "3")]
+            if (loadCount == 1) {
+                return [param("gate.rate_limit_per_minute", "6")]
+            }
+            return [param("gate.rate_limit_per_minute", "3")]
         }
         service.refresh()
         assert service.getInt("gate.rate_limit_per_minute", 6) == 6

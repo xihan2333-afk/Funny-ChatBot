@@ -10,16 +10,9 @@ import cn.edu.scut.chatbot.engine.task.TaskDO;
 import cn.edu.scut.chatbot.engine.task.TaskMapper;
 import cn.edu.scut.chatbot.engine.task.TaskStatus;
 import cn.edu.scut.chatbot.infrastructure.eventbus.BoundedEventListener;
-import cn.edu.scut.chatbot.loop.AgentContext;
-import cn.edu.scut.chatbot.loop.AgentLoop;
-import cn.edu.scut.chatbot.loop.AgentTool;
-import cn.edu.scut.chatbot.loop.GenerationParams;
-import cn.edu.scut.chatbot.loop.RunConfig;
-import cn.edu.scut.chatbot.loop.StreamFn;
+import cn.edu.scut.chatbot.loop.*;
 import cn.edu.scut.chatbot.loop.hooks.LoopHooks;
 import cn.edu.scut.chatbot.loop.message.SystemNote;
-import cn.edu.scut.chatbot.loop.transcript.SpeechOutcomeJudger;
-import cn.edu.scut.chatbot.loop.transcript.TranscriptProjector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -69,10 +62,13 @@ public class GenerationRunner {
     private final cn.edu.scut.chatbot.engine.outbox.OutboxWriter outboxWriter;
     private final cn.edu.scut.chatbot.prompt.PromptAssembler promptAssembler;
     private final cn.edu.scut.chatbot.context.ContextAwareProjector contextAwareProjector;
+    private final cn.edu.scut.chatbot.tool.assembler.ToolsetAssembler toolsetAssembler;
+    private final cn.edu.scut.chatbot.context.compaction.TranscriptCompactor transcriptCompactor;
+    private final cn.edu.scut.chatbot.context.window.WindowAssembler windowAssembler;
+    private final cn.edu.scut.chatbot.tool.ToolCallGuard toolCallGuard;
     private final IdGenerator idGenerator;
     private final Clock clock;
     private final BoundedEventListener eventListener;
-    private final Map<String, AgentTool> availableTools;
 
     public GenerationRunner(AgentLoop agentLoop,
                             StreamFn streamFn,
@@ -85,9 +81,12 @@ public class GenerationRunner {
                             cn.edu.scut.chatbot.engine.outbox.OutboxWriter outboxWriter,
                             cn.edu.scut.chatbot.prompt.PromptAssembler promptAssembler,
                             cn.edu.scut.chatbot.context.ContextAwareProjector contextAwareProjector,
+                            cn.edu.scut.chatbot.tool.assembler.ToolsetAssembler toolsetAssembler,
+                            cn.edu.scut.chatbot.context.compaction.TranscriptCompactor transcriptCompactor,
+                            cn.edu.scut.chatbot.context.window.WindowAssembler windowAssembler,
+                            cn.edu.scut.chatbot.tool.ToolCallGuard toolCallGuard,
                             IdGenerator idGenerator,
-                            Clock clock,
-                            List<AgentTool> tools) {
+                            Clock clock) {
         this.agentLoop = agentLoop;
         this.streamFn = streamFn;
         this.sessionManager = sessionManager;
@@ -99,13 +98,13 @@ public class GenerationRunner {
         this.outboxWriter = outboxWriter;
         this.promptAssembler = promptAssembler;
         this.contextAwareProjector = contextAwareProjector;
+        this.toolsetAssembler = toolsetAssembler;
+        this.transcriptCompactor = transcriptCompactor;
+        this.windowAssembler = windowAssembler;
+        this.toolCallGuard = toolCallGuard;
         this.idGenerator = idGenerator;
         this.clock = clock;
         this.eventListener = new BoundedEventListener();
-        this.availableTools = new HashMap<>();
-        for (AgentTool tool : tools) {
-            availableTools.put(tool.descriptor().name(), tool);
-        }
     }
 
     /**
@@ -122,15 +121,21 @@ public class GenerationRunner {
         try {
             AgentSessionDO session = sessionManager.getOrCreateSession(
                     turn.getPlatform(), turn.getBotId(), turn.getGroupId());
+            // Run 前压缩时机：错过 Run 结束时机（压缩失败）的补偿，也是安静档收缩的挂点
+            // （缓存过期后的第一次 Run 前收缩——2.3 缓存信号就位前的挂点形态）
+            compactBeforeRun(session);
             List<cn.edu.scut.chatbot.loop.message.AgentMessage> history =
                     sessionManager.loadTranscript(session);
+            List<AgentTool> turnTools = toolsetAssembler.assemble(RunConfig.ExecutionForm.TURN,
+                    turn.getPlatform(), turn.getBotId(), turn.getGroupId());
             AgentContext context = new AgentContext(systemPromptFor(RunConfig.ExecutionForm.TURN, turn.getPlatform(), turn.getBotId(), turn.getGroupId(), null), history,
-                    assembleTurnTools().stream().map(AgentTool::descriptor).toList(),
+                    turnTools.stream().map(AgentTool::descriptor).toList(),
                     GenerationParams.defaults());
             AgentLoop.RunOutcome outcome = executeSpec(turn.getPlatform(), turn.getBotId(),
                     turn.getGroupId(), turn.getId(), null, context, RunConfig.turnDefaults(),
-                    session, assembleTurnTools());
+                    session, turnTools);
             settleTurnOutcome(turn, outcome);
+            compactAfterRun(session);
         } finally {
             sessionManager.releaseInference(ticket);
         }
@@ -157,14 +162,16 @@ public class GenerationRunner {
                     clock.instant(), 50, "task-" + taskId, "taskSnapshot",
                     "[任务指令] " + task.getSnapshot()));
 
+            List<AgentTool> taskTools = toolsetAssembler.assemble(RunConfig.ExecutionForm.LIGHT_TASK,
+                    task.getPlatform(), task.getBotId(), task.getGroupId());
             AgentContext context = new AgentContext(
                     systemPromptFor(RunConfig.ExecutionForm.LIGHT_TASK, task.getPlatform(),
                             task.getBotId(), task.getGroupId(), "按任务指令自然地完成定时发言"),
-                    history, assembleTurnTools().stream().map(AgentTool::descriptor).toList(),
+                    history, taskTools.stream().map(AgentTool::descriptor).toList(),
                     GenerationParams.defaults());
             AgentLoop.RunOutcome outcome = executeSpec(task.getPlatform(), task.getBotId(),
                     task.getGroupId(), null, taskId, context, RunConfig.lightTaskDefaults(),
-                    session, assembleTurnTools());
+                    session, taskTools);
             if (AgentLoop.RunOutcome.STOP_ERROR.equals(outcome.stopReason())
                     || AgentLoop.RunOutcome.STOP_ABORTED.equals(outcome.stopReason())) {
                 taskCoordinator.taskConcluded(taskId, null,
@@ -175,6 +182,7 @@ public class GenerationRunner {
                     "{\"spoke\":" + (!outcome.silent()) + ",\"stopReason\":\""
                             + outcome.stopReason() + "\"}",
                     null);
+            compactAfterRun(session);
         } finally {
             sessionManager.releaseInference(ticket);
         }
@@ -212,12 +220,15 @@ public class GenerationRunner {
                             + "已无意义，就安静收尾不说话；否则以你的口吻转告（不要机械复读）："
                             + task.getResult()));
 
+            List<AgentTool> deliveryTools = toolsetAssembler.assemble(RunConfig.ExecutionForm.TURN,
+                    task.getPlatform(), task.getBotId(), task.getGroupId());
             AgentContext context = new AgentContext(systemPromptFor(RunConfig.ExecutionForm.TURN,
                     task.getPlatform(), task.getBotId(), task.getGroupId(), "任务结论人格化交付"), history,
-                    assembleTurnTools().stream().map(AgentTool::descriptor).toList(),
+                    deliveryTools.stream().map(AgentTool::descriptor).toList(),
                     GenerationParams.defaults());
             executeSpec(task.getPlatform(), task.getBotId(), task.getGroupId(), null, taskId,
-                    context, RunConfig.turnDefaults(), session, assembleTurnTools());
+                    context, RunConfig.turnDefaults(), session, deliveryTools);
+            compactAfterRun(session);
         } finally {
             sessionManager.releaseInference(ticket);
         }
@@ -248,22 +259,111 @@ public class GenerationRunner {
     }
 
     /**
-     * Run 执行公共体（Turn/轻任务/交付共用组装路径）
+     * Run 执行公共体（Turn/轻任务/交付共用组装路径）。投影闭包绑定该群会话的窗口档位——
+     * Run 内档位固定（快照纪律），新 Run 读新档。
      */
     private AgentLoop.RunOutcome executeSpec(String platform, String botId, String groupId,
                                              Long turnId, Long taskId, AgentContext context,
                                              RunConfig config, AgentSessionDO session,
                                              List<AgentTool> tools) {
+        String windowLevel = session.getWindowLevel() != null
+                ? session.getWindowLevel() : AgentSessionDO.WINDOW_ACTIVE;
         AgentLoop.RunSpec spec = new AgentLoop.RunSpec(
                 idGenerator.nextId(), platform, botId, groupId, turnId, taskId, context, config,
-                LoopHooks.builder(contextAwareProjector)
+                LoopHooks.builder(working -> contextAwareProjector.convert(working, windowLevel))
                         .transformContext(original -> injectCurrentNotes(original, session))
+                        .beforeToolCall(toolCallGuard.forRun(platform, botId, groupId))
                         .build(),
                 toolsByName(tools), streamFn, clock, idGenerator::nextId,
-                (completedRunId, turnMessages) ->
-                        sessionManager.appendTranscript(session, turnMessages, completedRunId),
+                (completedRunId, turnMessages) -> {
+                    if (config.form() == RunConfig.ExecutionForm.LIGHT_TASK) {
+                        // 轻任务腹稿只写任务执行记录，不进群聊历史（设计 :505；
+                        // 发言经 sendMessage 出口已在 outbox 留痕）
+                        taskCoordinator.taskProgress(taskId,
+                                "轮次完成：" + turnMessages.size() + " 条消息（不进群聊历史）");
+                        return;
+                    }
+                    sessionManager.appendTranscript(session, turnMessages, completedRunId);
+                },
                 eventListener);
         return agentLoop.execute(spec);
+    }
+
+    /**
+     * Run 前压缩时机：同步执行（错过 Run 结束时机的补偿与安静档收缩挂点——
+     * 本次 Run 的窗口直接取收缩后的转录）
+     */
+    private void compactBeforeRun(AgentSessionDO session) {
+        compactOnce(session);
+    }
+
+    /**
+     * 预防性压缩通道（Run 结束查水位——设计压缩触发双通道之一；应急通道由
+     * context_overflow 错误驱动重试，2.3 模型侧错误码就位后挂接）。
+     * 异步执行：不占推理权时间（设计 :1296"Run 结束、轮次落库后异步执行"）
+     */
+    private void compactAfterRun(AgentSessionDO session) {
+        Thread.ofVirtual().name("transcript-compact").start(() -> compactOnce(session));
+    }
+
+    /**
+     * 水位检查与压缩执行（失败只告警——压缩是增强动作，不影响生成结果）
+     */
+    private void compactOnce(AgentSessionDO session) {
+        try {
+            String level = session.getWindowLevel() != null
+                    ? session.getWindowLevel() : AgentSessionDO.WINDOW_ACTIVE;
+            List<cn.edu.scut.chatbot.loop.message.AgentMessage> transcript =
+                    sessionManager.loadTranscript(session);
+            int estimated = transcript.stream()
+                    .mapToInt(GenerationRunner::projectionTextOf)
+                    .sum();
+            int outputReserve = 4096;
+            int triggerLine = windowAssembler.compactTriggerLine(level, outputReserve);
+            if (estimated > triggerLine) {
+                transcriptCompactor.compactIfNeeded(session, estimated, triggerLine);
+            }
+        } catch (Exception e) {
+            // 压缩失败不影响刚完成的生成（下个 Run 前后时机再试）
+            log.warn("压缩失败（不影响生成结果） sessionId={}", session.getId(), e);
+        }
+    }
+
+    /**
+     * 投影文本估算口径（与窗口组装器的估算依据一致——摘要取正文、事件取一行描述、
+     * 基准条目取主文本，不用 record 全字段 toString 防系统性高估）
+     */
+    private static int projectionTextOf(cn.edu.scut.chatbot.loop.message.AgentMessage message) {
+        String text;
+        if (message instanceof cn.edu.scut.chatbot.loop.message.SummaryEntry summary) {
+            text = summary.summaryText();
+        } else if (message instanceof cn.edu.scut.chatbot.loop.message.EventEntry event) {
+            text = event.summaryLine();
+        } else if (message instanceof cn.edu.scut.chatbot.loop.message.AssistantMessage assistant) {
+            text = assistant.textContent();
+        } else if (message instanceof cn.edu.scut.chatbot.loop.message.ToolResultMessage toolResult) {
+            StringBuilder builder = new StringBuilder();
+            for (var content : toolResult.content()) {
+                if (content instanceof cn.edu.scut.chatbot.loop.message.TextContent textContent) {
+                    builder.append(textContent.text());
+                }
+            }
+            text = builder.toString();
+        } else if (message instanceof cn.edu.scut.chatbot.loop.message.UserMessage user) {
+            StringBuilder builder = new StringBuilder();
+            for (var part : user.parts()) {
+                if (part instanceof cn.edu.scut.chatbot.contract.message.TextPart textPart) {
+                    builder.append(textPart.text());
+                }
+            }
+            text = builder.toString();
+        } else if (message instanceof cn.edu.scut.chatbot.loop.message.LinkCardEntry card) {
+            text = card.summary() != null ? card.summary() : card.title();
+        } else {
+            text = "";
+        }
+        return cn.edu.scut.chatbot.context.window.TokenEstimator.estimate(
+                text == null ? "" : text);
     }
 
     /**
@@ -312,22 +412,6 @@ public class GenerationRunner {
             log.error("兜底发言补投失败（发言丢失，Turn 仍按无出事件收尾） turnId={}", turn.getId(), e);
             return -1;
         }
-    }
-
-    /**
-     * turn/lightTask/delivery 形态工具集：快工具 + sendMessage
-     * （Worker 形态的全量无 sendMessage 裁配在 WorkerRunner——T065）
-     */
-    private List<AgentTool> assembleTurnTools() {
-        List<AgentTool> turnTools = new ArrayList<>();
-        for (AgentTool tool : availableTools.values()) {
-            if (SpeechOutcomeJudger.SEND_MESSAGE_TOOL.equals(tool.descriptor().name())) {
-                turnTools.add(tool);
-            } else if (tool.descriptor().speed() == cn.edu.scut.chatbot.loop.ToolDescriptor.ToolSpeed.FAST) {
-                turnTools.add(tool);
-            }
-        }
-        return turnTools;
     }
 
     private Map<String, AgentTool> toolsByName(List<AgentTool> tools) {

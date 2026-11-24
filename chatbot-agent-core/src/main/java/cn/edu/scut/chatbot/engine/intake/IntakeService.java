@@ -16,7 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
-import java.util.List;
 
 /**
  * 入口服务（spec US2、research R2）：触发器登记（幂等）、群自动发现（与登记同事务）、
@@ -35,6 +34,7 @@ public class IntakeService {
     private final GroupConfigMapper groupConfigMapper;
     private final IdGenerator idGenerator;
     private final Clock clock;
+    private final cn.edu.scut.chatbot.engine.session.TranscriptIntakeWriter transcriptIntakeWriter;
 
     /**
      * 回执结算分流口（US3 OutboxWriter 就位后挂接，先留接口——Phase 4 期间回执到达即记日志）
@@ -62,7 +62,8 @@ public class IntakeService {
                          IdGenerator idGenerator,
                          Clock clock,
                          DeliverySettlementSink deliverySink,
-                         LifecycleHook lifecycleHook) {
+                         LifecycleHook lifecycleHook,
+                         cn.edu.scut.chatbot.engine.session.TranscriptIntakeWriter transcriptIntakeWriter) {
         this.triggerEventMapper = triggerEventMapper;
         this.groupMapper = groupMapper;
         this.groupConfigMapper = groupConfigMapper;
@@ -70,6 +71,7 @@ public class IntakeService {
         this.clock = clock;
         this.deliverySink = deliverySink;
         this.lifecycleHook = lifecycleHook;
+        this.transcriptIntakeWriter = transcriptIntakeWriter;
     }
 
     /**
@@ -134,7 +136,11 @@ public class IntakeService {
         } catch (DuplicateKeyException duplicate) {
             // 幂等：uk_dedup 拒插即重复投递（至少一次语义的正常形态），静默返回
             log.debug("重复投递幂等拦截 dedupKey={}", envelope.dedupKey());
+            return;
         }
+        // 存储全量纪律：登记成功即写转录（群友消息/群事件进历史，可见性由投影逐次决定）。
+        // 幂等同源：重复投递在触发器层已被拒，不会重复写条目
+        transcriptIntakeWriter.writeInbound(envelope);
     }
 
     /**

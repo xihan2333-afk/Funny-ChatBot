@@ -133,4 +133,51 @@ class PromptAssemblerTest extends Specification {
         prompt.contains("大家好")
         !prompt.contains("not.declared")
     }
+
+    def "群级禁用技能清单逗号分隔传入技能目录渲染（技能两级开关的第二级）"() {
+        given: "该群禁用早报与点歌两个技能"
+        persona()
+        fragmentMapper.selectPublishedByLayer("identity") >> []
+        fragmentMapper.selectPublishedByLayer("protocol") >> []
+        def config = new GroupConfigDO()
+        config.setDisabledSkills('["早报","点歌"]')
+        groupConfigMapper.selectByGroup(*_) >> config
+        def receivedContext = []
+        skillRenderer.renderDirectory(_) >> { String ctx ->
+            receivedContext << ctx
+            "【可用技能】\n- 天气查询"
+        }
+
+        when:
+        def prompt = assembler.assemble(RunConfig.ExecutionForm.TURN, "qq", "10000", "80001", null)
+
+        then: "目录渲染收到逗号分隔的过滤上下文（目录据此过滤条目）"
+        receivedContext == ["早报,点歌"]
+        and: "渲染出的目录进入能力协议层"
+        prompt.contains("【可用技能】")
+    }
+
+    def "禁用技能清单为空或无群会话时不过滤（null 上下文进目录渲染）"() {
+        given:
+        persona()
+        fragmentMapper.selectPublishedByLayer("identity") >> []
+        fragmentMapper.selectPublishedByLayer("protocol") >> []
+        def config = new GroupConfigDO()
+        config.setDisabledSkills(emptyJson)
+        groupConfigMapper.selectByGroup(*_) >> config
+        def receivedContext = []
+        skillRenderer.renderDirectory(_) >> { String ctx -> receivedContext << ctx; "" }
+
+        when:
+        assembler.assemble(RunConfig.ExecutionForm.TURN, "qq", "10000", groupId, null)
+
+        then:
+        receivedContext == [null]
+
+        where:
+        emptyJson | groupId
+        "[]"      | "80001"
+        null      | "80001"
+        null      | null
+    }
 }

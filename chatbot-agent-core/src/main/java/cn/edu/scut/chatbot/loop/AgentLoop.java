@@ -113,9 +113,13 @@ public class AgentLoop {
         for (int turnIndex = 0; turnIndex < config.maxTurns(); turnIndex++) {
             emit(spec, new LoopEvent.TurnEvent(spec.runId(), LoopEvent.Phase.START, turnIndex));
 
-            // 每轮调用前的钩子链：transformContext（最先）→ convertToLlm → resolveCredentials
-            context = safeTransformContext(spec, context);
-            List<LlmMessage> llmMessages = safeConvertToLlm(spec, workingTranscript);
+            // 每轮调用前的钩子链：transformContext（最先）→ convertToLlm → resolveCredentials。
+            // transformContext 的输入是工作转录当前态的副本（含上轮模型消息与工具结果）——
+            // 钩子增删的现注条目（任务清单/当前时间）随副本直达投影，不落转录（每次调用重取）
+            AgentContext turnView = new AgentContext(context.systemPrompt(),
+                    List.copyOf(workingTranscript), context.tools(), context.params());
+            context = safeTransformContext(spec, turnView);
+            List<LlmMessage> llmMessages = safeConvertToLlm(spec, context.messages());
             String credential = safeResolveCredentials(spec);
 
             ModelRequest request = new ModelRequest(
@@ -271,7 +275,7 @@ public class AgentLoop {
         }
         ToolInvocation invocation = new ToolInvocation(
                 call.argumentsJson(), spec.platform(), spec.botId(), spec.groupId(),
-                spec.config().form(), spec.turnId(), spec.taskId());
+                spec.config().form(), spec.turnId(), spec.taskId(), call.name());
         invocations.put(index, invocation);
 
         LoopHooks.BeforeToolCallHook.Interception interception =

@@ -1,7 +1,7 @@
 // 守护纪律：窗口是视图历史全量只增不改；锚定区 20 条永不淘汰、淘汰按 weight 次序（data-model 第 13 节）
 package cn.edu.scut.chatbot.context.window
 
-import cn.edu.scut.chatbot.loop.message.AgentMessage
+
 import cn.edu.scut.chatbot.loop.message.EventEntry
 import cn.edu.scut.chatbot.loop.message.SummaryEntry
 import cn.edu.scut.chatbot.loop.message.UserMessage
@@ -26,12 +26,18 @@ class WindowAssemblyTest extends Specification {
     }
 
     def "超预算转录淘汰按weight次序从成员变动开始 锚定区尾部20条在窗"() {
-        given: "60 条转录：开头 3 条成员变动（weight 10），其余用户消息（weight 50）——总量超预算"
+        given:
+        "60 条转录：开头 3 条成员变动（weight 10），其余长用户消息（weight 50）——总量超预算" +
+                "但超得不狠：weight 淘汰足以降到预算内，不触发砍锚定区的硬切保命段" +
+                "（每条约 50 字中文，按 CJK×1.5 估算约 75 token，57 条约 4300，对话区预算 2000）"
         def transcript = []
         transcript << memberChange("evt-1", 0)
         transcript << memberChange("evt-2", 1)
         transcript << memberChange("evt-3", 2)
-        (1..57).each { i -> transcript << user("msg-" + i, i, "消息内容" + i) }
+        (1..57).each { i ->
+            transcript << user("msg-" + i, i,
+                    "消息内容" + i + "，" + "这段对话文本刻意写长以撑过窗口的对话区预算。" * 2)
+        }
 
         when:
         def plan = assembler.assemble(transcript, null, "active")
@@ -96,5 +102,15 @@ class WindowAssemblyTest extends Specification {
         !assembler.shouldCompact(3000, "active", 500)     // 未到 4000-500
         assembler.shouldCompact(3600, "active", 500)      // 超过触发线
         assembler.shouldCompact(700, "quiet", 500)        // quiet 档 1000-500=500 已超
+    }
+
+    def "压缩触发线：预算减输出预留 档位双口径 与shouldCompact判定一致"() {
+        expect: "触发线 = 档位预算 − 输出预留（GenerationRunner 与压缩器共用此口径）"
+        assembler.compactTriggerLine("active", 500) == 3500
+        assembler.compactTriggerLine("quiet", 500) == 500
+        assembler.compactTriggerLine("active", 0) == 4000
+        and: "恰在触发线上不压缩，超一线即压缩（边界一致）"
+        !assembler.shouldCompact(assembler.compactTriggerLine("active", 500), "active", 500)
+        assembler.shouldCompact(assembler.compactTriggerLine("active", 500) + 1, "active", 500)
     }
 }

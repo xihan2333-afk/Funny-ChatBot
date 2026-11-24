@@ -47,6 +47,11 @@ public interface TaskMapper {
     List<TaskDO> selectRecoverable();
 
     /**
+     * 全部 WAITING 任务（条件唤醒求值与超期判定的扫描口径）
+     */
+    List<TaskDO> selectWaiting();
+
+    /**
      * 该群最旧 RUNNING 的 light Task（generation Effect 指针驱动：轻任务路径）
      */
     TaskDO selectOldestRunningLightByGroup(@Param("platform") String platform,

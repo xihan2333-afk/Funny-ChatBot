@@ -161,4 +161,12 @@
         ORDER BY occurred_at LIMIT 1
     </select>
 
+
+    <select id="selectLastOccurredAt" resultType="java.time.LocalDateTime">
+        SELECT MAX(occurred_at)
+        FROM trigger_event
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+    </select>
 </mapper>

@@ -5,7 +5,6 @@ import cn.edu.scut.chatbot.contract.envelope.EventEnvelope;
 import cn.edu.scut.chatbot.contract.in.BotEventPayload;
 import cn.edu.scut.chatbot.engine.gate.L1AssessmentModel;
 import cn.edu.scut.chatbot.engine.gate.L1BatchAssessor;
-import cn.edu.scut.chatbot.engine.intake.GroupConfigMapper;
 import cn.edu.scut.chatbot.engine.intake.IntakeService;
 import cn.edu.scut.chatbot.engine.intake.TriggerEventMapper;
 import org.slf4j.Logger;
@@ -106,11 +105,12 @@ public class EngineConfiguration {
 
     /**
      * BotEvent 生命周期联动（US8 就位后的真实现：被踢出群触发销毁联动；
-     * 其余子类记录日志——完整 Bot 事件处理归后续 feature）
+     * 其余子类写入转录（Bot 自身事件对人格可见）——完整 Bot 事件处理归后续 feature）
      */
     @Bean
     public IntakeService.LifecycleHook botEventLifecycleHook(
-            cn.edu.scut.chatbot.engine.lifecycle.GroupLifecycleManager lifecycleManager) {
+            cn.edu.scut.chatbot.engine.lifecycle.GroupLifecycleManager lifecycleManager,
+            cn.edu.scut.chatbot.engine.session.TranscriptIntakeWriter transcriptIntakeWriter) {
         return new IntakeService.LifecycleHook() {
             @Override
             public void onBotEvent(EventEnvelope envelope, BotEventPayload payload) {
@@ -120,6 +120,7 @@ public class EngineConfiguration {
                     return;
                 }
                 log.info("BotEvent 到达 subType={}（除被踢外无生命周期联动）", payload.subType());
+                transcriptIntakeWriter.writeBotEvent(envelope, payload);
             }
         };
     }
@@ -149,7 +150,7 @@ public class EngineConfiguration {
                             : fragments.get(0).getContent().replace("{{persona.name}}", personaName);
                 },
                 (platform, botId, groupId, limit) -> {
-                    // 近期群消息投影（transcript 倒序 → 正序呈现，只取 user 形态文本行）
+                    // 近期群消息投影（transcript 倒序 → 正序呈现；user 条目译为可读行而非 payload JSON）
                     var session = sessionMapper.selectByGroup(platform, botId, groupId);
                     if (session == null) {
                         return List.of();
@@ -158,8 +159,16 @@ public class EngineConfiguration {
                     List<String> lines = new java.util.ArrayList<>();
                     for (int i = recent.size() - 1; i >= 0; i--) {
                         var entry = recent.get(i);
-                        if ("user".equals(entry.getKind())) {
-                            lines.add(entry.getPayload());
+                        if (!"user".equals(entry.getKind())) {
+                            continue;
+                        }
+                        try {
+                            var message = transcriptCodec.decode(entry.getPayload(), entry.getKind());
+                            if (message instanceof cn.edu.scut.chatbot.loop.message.UserMessage userMessage) {
+                                lines.add(userLine(userMessage));
+                            }
+                        } catch (Exception e) {
+                            log.warn("L1 近期窗口条目解码失败跳过 entryId={}", entry.getId(), e);
                         }
                     }
                     return lines;
@@ -168,5 +177,31 @@ public class EngineConfiguration {
                 clock,
                 systemParamService.getInt("gate.l1_max_retry", 3),
                 systemParamService.getLong("gate.l1_backoff_base_millis", 500));
+    }
+
+    /**
+     * 群友消息 → L1 评估用可读行（发言人 + 文本/提及；图片等非文本段以占位符呈现）
+     */
+    private static String userLine(cn.edu.scut.chatbot.loop.message.UserMessage message) {
+        StringBuilder text = new StringBuilder();
+        for (var part : message.parts()) {
+            if (part instanceof cn.edu.scut.chatbot.contract.message.TextPart textPart) {
+                text.append(textPart.text());
+            } else if (part instanceof cn.edu.scut.chatbot.contract.message.AtPart atPart) {
+                text.append("@").append(atPart.targetUserId());
+            } else if (part instanceof cn.edu.scut.chatbot.contract.message.ImagePart) {
+                text.append("[图片]");
+            } else if (part instanceof cn.edu.scut.chatbot.contract.message.AudioPart) {
+                text.append("[语音]");
+            } else if (part instanceof cn.edu.scut.chatbot.contract.message.VideoPart) {
+                text.append("[视频]");
+            } else if (part instanceof cn.edu.scut.chatbot.contract.message.FacePart) {
+                text.append("[表情]");
+            } else if (part instanceof cn.edu.scut.chatbot.contract.message.QuotePart) {
+                text.append("[引用消息]");
+            }
+        }
+        String sender = message.senderUserId() != null ? message.senderUserId() : "匿名";
+        return sender + "：" + (text.isEmpty() ? "[非文本消息]" : text);
     }
 }

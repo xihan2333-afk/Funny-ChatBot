@@ -92,6 +92,11 @@ public class SandboxService {
      * 截断至字节数上限（UTF-8 字节口径），截断时尾部注明。
      * 截断点落在多字节字符中间时解码产生替换字符（�），把尾部替换字符削掉再标注。
      */
+    /**
+     * 命令输出截断保尾（方向策略：命令输出的错误与结论通常在尾部，文章才保头——
+     * 文章保头在预取器 firstParagraphOf；此处丢头留尾）。从头侧切多字节字符产生的
+     * 破损替换符也一并削掉（只削尾会漏）
+     */
     private String truncate(String output) {
         if (output == null) {
             return "";
@@ -100,10 +105,14 @@ public class SandboxService {
         if (bytes.length <= outputTruncateBytes) {
             return output;
         }
-        String cut = new String(bytes, 0, outputTruncateBytes, StandardCharsets.UTF_8);
+        String cut = new String(bytes, bytes.length - outputTruncateBytes,
+                outputTruncateBytes, StandardCharsets.UTF_8);
+        while (cut.startsWith("�")) {
+            cut = cut.substring(1);
+        }
         while (cut.endsWith("�")) {
             cut = cut.substring(0, cut.length() - 1);
         }
-        return cut + ExecuteResponse.TRUNCATED_SUFFIX;
+        return ExecuteResponse.TRUNCATED_SUFFIX + cut;
     }
 }

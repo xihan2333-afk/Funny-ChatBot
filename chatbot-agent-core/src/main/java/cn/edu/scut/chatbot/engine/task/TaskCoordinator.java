@@ -1,6 +1,5 @@
 package cn.edu.scut.chatbot.engine.task;
 
-import cn.edu.scut.chatbot.exception.CommandRejectedException;
 import cn.edu.scut.chatbot.bootstrap.IdGenerator;
 import cn.edu.scut.chatbot.engine.effect.EffectsQueueDO;
 import cn.edu.scut.chatbot.engine.effect.EffectsQueueMapper;
@@ -8,6 +7,7 @@ import cn.edu.scut.chatbot.engine.intake.GroupDO;
 import cn.edu.scut.chatbot.engine.intake.GroupMapper;
 import cn.edu.scut.chatbot.engine.intake.TriggerEventDO;
 import cn.edu.scut.chatbot.engine.intake.TriggerEventMapper;
+import cn.edu.scut.chatbot.exception.CommandRejectedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -38,6 +38,7 @@ public class TaskCoordinator {
     private final TriggerEventMapper triggerEventMapper;
     private final GroupMapper groupMapper;
     private final EffectsQueueMapper effectsQueueMapper;
+    private final WorkerSignalRegistry workerSignalRegistry;
     private final IdGenerator idGenerator;
     private final Clock clock;
 
@@ -46,6 +47,7 @@ public class TaskCoordinator {
                            TriggerEventMapper triggerEventMapper,
                            GroupMapper groupMapper,
                            EffectsQueueMapper effectsQueueMapper,
+                           WorkerSignalRegistry workerSignalRegistry,
                            IdGenerator idGenerator,
                            Clock clock) {
         this.taskMapper = taskMapper;
@@ -53,6 +55,7 @@ public class TaskCoordinator {
         this.triggerEventMapper = triggerEventMapper;
         this.groupMapper = groupMapper;
         this.effectsQueueMapper = effectsQueueMapper;
+        this.workerSignalRegistry = workerSignalRegistry;
         this.idGenerator = idGenerator;
         this.clock = clock;
     }
@@ -109,8 +112,8 @@ public class TaskCoordinator {
     }
 
     /**
-     * 人工停止（请求类）：RUNNING/WAITING/SCHEDULED → CANCELLED；Worker 的取消信号由
-     * WorkerLauncher 持有的信号注册表置位（不 interrupt 不持线程引用）
+     * 人工停止（请求类）：RUNNING/WAITING/SCHEDULED → CANCELLED；活跃 Worker 的取消信号
+     * 同步置位（经信号注册表——不 interrupt 不持线程引用，Worker 安静收尾不写结论）
      */
     public void stopTask(long taskId, String reason) {
         TaskDO task = taskMapper.selectById(taskId);
@@ -119,6 +122,7 @@ public class TaskCoordinator {
                     (task == null ? "不存在" : task.getStatus()) + "），无法停止");
         }
         taskMapper.advanceStatus(taskId, task.getStatus(), TaskStatus.CANCELLED.name());
+        workerSignalRegistry.cancelWorker(taskId);
         recordExecution(taskId, TaskExecutionLogDO.KIND_ROUND, "人工停止：" + reason);
     }
 

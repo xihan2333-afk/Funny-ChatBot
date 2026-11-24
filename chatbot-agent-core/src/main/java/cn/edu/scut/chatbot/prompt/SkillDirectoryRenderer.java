@@ -22,9 +22,11 @@ public class SkillDirectoryRenderer {
     /**
      * 渲染技能目录（一行一条：名字 + 描述；无技能返回空串——层内不出现空目录头）
      *
-     * @param skillContext 群级禁用过滤上下文（"skill1,skill2" 逗号分隔；null=不过滤）
+     * @param skillContext 群级禁用过滤上下文（"skill1,skill2" 逗号分隔；null=不过滤）——
+     *                     按名精确匹配（子串包含会把 readSkillPro 误杀成 readSkill）
      */
     public String renderDirectory(String skillContext) {
+        List<String> disabled = parseDisabled(skillContext);
         List<SkillDO> skills = skillMapper.selectAll();
         StringBuilder directory = new StringBuilder();
         for (SkillDO skill : skills) {
@@ -32,7 +34,7 @@ public class SkillDirectoryRenderer {
                     || !"published".equals(skill.getStatus())) {
                 continue;   // 只列启用且已发布
             }
-            if (skillContext != null && skillContext.contains(skill.getName())) {
+            if (disabled.contains(skill.getName())) {
                 continue;   // 该群禁用
             }
             directory.append("- 技能【").append(skill.getName()).append("】")
@@ -42,5 +44,18 @@ public class SkillDirectoryRenderer {
             return "";
         }
         return "【可用技能】（要看用法就调 readSkill）\n" + directory;
+    }
+
+    private List<String> parseDisabled(String skillContext) {
+        if (skillContext == null || skillContext.isBlank()) {
+            return List.of();
+        }
+        List<String> disabled = new java.util.ArrayList<>();
+        for (String name : skillContext.split(",")) {
+            if (!name.isBlank()) {
+                disabled.add(name.trim());
+            }
+        }
+        return disabled;
     }
 }

@@ -135,6 +135,30 @@
         WHERE status IN ('RUNNING', 'WAITING')
     </select>
 
+    <select id="selectWaiting" resultType="cn.edu.scut.chatbot.engine.task.TaskDO">
+        SELECT id,
+               platform,
+               bot_id          AS botId,
+               group_id        AS groupId,
+               task_kind       AS taskKind,
+               category,
+               status,
+               mandate_source  AS mandateSource,
+               mandate_ref     AS mandateRef,
+               creator_user_id AS creatorUserId,
+               snapshot,
+               wake_condition  AS wakeCondition,
+               schedule_at     AS scheduleAt,
+               expire_at       AS expireAt,
+               result,
+               error_code      AS errorCode,
+               created_at      AS createdAt,
+               updated_at      AS updatedAt,
+               finished_at     AS finishedAt
+        FROM task
+        WHERE status = 'WAITING'
+    </select>
+
     <select id="selectOldestRunningLightByGroup" resultType="cn.edu.scut.chatbot.engine.task.TaskDO">
         SELECT id,
                platform,

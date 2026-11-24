@@ -26,4 +26,12 @@ public record AgentToolResult(
     public static AgentToolResult error(String errorText) {
         return new AgentToolResult(List.of(new TextContent(errorText)), true, false, Map.of());
     }
+
+    /**
+     * 拦截终止：安全闸拦截且要求收敛循环的形态（如发言内容被过滤——继续换措辞重试
+     * 只会再次命中，直接终止本次 Run）
+     */
+    public static AgentToolResult errorTerminating(String errorText) {
+        return new AgentToolResult(List.of(new TextContent(errorText)), true, true, Map.of());
+    }
 }

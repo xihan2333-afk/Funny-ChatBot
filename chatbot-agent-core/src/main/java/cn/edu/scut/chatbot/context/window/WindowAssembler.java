@@ -113,7 +113,8 @@ public class WindowAssembler {
     }
 
     /**
-     * 投影文本口径（估算依据——与投影产出的文本行一致即可，无需精确）
+     * 投影文本口径（估算依据——与投影产出的文本行一致即可，无需精确；
+     * 不用 record 全字段 toString，信封字段会把估算抬高数倍导致过度淘汰）
      */
     private String projectionTextOf(AgentMessage message) {
         if (message instanceof SummaryEntry summary) {
@@ -122,14 +123,48 @@ public class WindowAssembler {
         if (message instanceof EventEntry event) {
             return event.summaryLine();
         }
-        return String.valueOf(message);
+        if (message instanceof cn.edu.scut.chatbot.loop.message.AssistantMessage assistant) {
+            return assistant.textContent() == null ? "" : assistant.textContent();
+        }
+        if (message instanceof cn.edu.scut.chatbot.loop.message.UserMessage user) {
+            StringBuilder builder = new StringBuilder();
+            for (var part : user.parts()) {
+                if (part instanceof cn.edu.scut.chatbot.contract.message.TextPart textPart
+                        && textPart.text() != null) {
+                    builder.append(textPart.text());
+                }
+            }
+            return builder.toString();
+        }
+        if (message instanceof cn.edu.scut.chatbot.loop.message.ToolResultMessage toolResult) {
+            StringBuilder builder = new StringBuilder();
+            for (var content : toolResult.content()) {
+                if (content instanceof cn.edu.scut.chatbot.loop.message.TextContent text) {
+                    builder.append(text.text());
+                }
+            }
+            return builder.toString();
+        }
+        if (message instanceof cn.edu.scut.chatbot.loop.message.LinkCardEntry card) {
+            return card.summary() != null ? card.summary()
+                    : (card.title() != null ? card.title() : "");
+        }
+        return "";
     }
 
     /**
      * 水位判定：投影量超触发线（预算 − 输出上限 − 现注留量）即需要压缩
      */
     public boolean shouldCompact(int estimatedTokens, String windowLevel, int outputReserveTokens) {
+        return estimatedTokens > compactTriggerLine(windowLevel, outputReserveTokens);
+    }
+
+    /**
+     * 压缩触发线（预算 − 输出预留）：调用方持估算量与触发线分别传递时用
+     * （TranscriptCompactor.compactIfNeeded 的口径与此一致）
+     */
+    public int compactTriggerLine(String windowLevel, int outputReserveTokens) {
         int budget = "quiet".equals(windowLevel) ? quietBudgetTokens : activeBudgetTokens;
-        return estimatedTokens > budget - outputReserveTokens;
+        return budget - outputReserveTokens;
     }
 }

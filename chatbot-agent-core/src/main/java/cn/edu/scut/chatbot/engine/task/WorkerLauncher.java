@@ -31,6 +31,7 @@ public class WorkerLauncher implements EffectHandler {
 
     private final WorkerRunner workerRunner;
     private final SystemParamService systemParamService;
+    private final WorkerSignalRegistry signalRegistry;
 
     /**
      * 全局并发闸（提交侧；上限启动时读一次——固定许可数，动态调整会许可漂移）
@@ -38,13 +39,16 @@ public class WorkerLauncher implements EffectHandler {
     private final Semaphore semaphore;
 
     /**
-     * taskId → 取消信号注册表（生命周期事件置位的唯一面）
+     * 群 → 同群串行闸（每群一许可：同一时刻一个群至多一个 Worker 在跑；
+     * 在 Worker 线程内 acquire——不阻塞 Effects 执行器的同群管线）
      */
-    private final Map<Long, CancellationSignal> activeSignals = new ConcurrentHashMap<>();
+    private final Map<String, Semaphore> groupGates = new ConcurrentHashMap<>();
 
-    public WorkerLauncher(WorkerRunner workerRunner, SystemParamService systemParamService) {
+    public WorkerLauncher(WorkerRunner workerRunner, SystemParamService systemParamService,
+                          WorkerSignalRegistry signalRegistry) {
         this.workerRunner = workerRunner;
         this.systemParamService = systemParamService;
+        this.signalRegistry = signalRegistry;
         // 并发闸上限启动时读一次（热变更演进点：动态上限需自定义计数闸，当前固定防许可漂移）
         this.semaphore = new Semaphore(Math.max(1, systemParamService.getInt("worker.max_concurrency", 2)));
     }
@@ -67,31 +71,25 @@ public class WorkerLauncher implements EffectHandler {
         // 提交侧闸：acquire 一个许可（拿不到阻塞等待——忙不是故障，不拒绝）
         semaphore.acquire();
 
+        Semaphore groupGate = groupGates.computeIfAbsent(
+                effect.getPlatform() + ":" + effect.getBotId() + ":" + effect.getGroupId(),
+                key -> new Semaphore(1));
         CancellationSignal signal = CancellationSignal.create();
-        activeSignals.put(taskId, signal);
+        signalRegistry.register(taskId, signal);
         Thread.ofVirtual().name("worker-" + taskId).start(() -> {
             try {
+                groupGate.acquire();   // 同群串行：等前一个本群 Worker 跑完
                 workerRunner.run(taskId, signal);
             } catch (Exception e) {
                 log.error("Worker 运行异常（结论按失败回传） taskId={}", taskId, e);
                 workerRunner.concludeFailed(taskId, "engine.task.worker_crashed:" + e.getMessage());
             } finally {
-                activeSignals.remove(taskId);
+                groupGate.release();
+                signalRegistry.unregister(taskId);
                 semaphore.release();
             }
         });
         // 处理器返回即 Effect 行删除；Worker 自身进度经 task_execution_log 留痕
-    }
-
-    /**
-     * 置位该 Task 的取消信号（Task 取消/群暂停/群销毁调用；无活跃 Worker 时无害）
-     */
-    public void cancelWorker(long taskId) {
-        CancellationSignal signal = activeSignals.get(taskId);
-        if (signal != null) {
-            signal.cancel();
-            log.info("Worker 取消信号置位 taskId={}", taskId);
-        }
     }
 
     /**

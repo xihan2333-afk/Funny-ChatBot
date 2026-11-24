@@ -33,6 +33,12 @@ public final class InputTruncator {
      */
     public static final int GROUP_MESSAGE_MAX_CHARS = 2000;
 
+    /**
+     * 行内 URL 识别（单行截断的豁免对象——URL 截断即销毁，宁可越界保留）
+     */
+    private static final java.util.regex.Pattern URL_IN_LINE =
+            java.util.regex.Pattern.compile("https?://[\\w./?%#&=+-]+");
+
     private InputTruncator() {
     }
 
@@ -106,6 +112,16 @@ public final class InputTruncator {
         if (line == null || line.length() <= MAX_LINE_CHARS) {
             return line;
         }
-        return line.substring(0, MAX_LINE_CHARS) + "…[单行超长截断]";
+        String capped = line.substring(0, MAX_LINE_CHARS);
+        // URL 豁免：URL 是压缩信息，截断即销毁——截断丢掉的 URL 追加保留
+        StringBuilder preserved = new StringBuilder();
+        java.util.regex.Matcher matcher = URL_IN_LINE.matcher(line);
+        while (matcher.find()) {
+            String url = matcher.group();
+            if (!capped.contains(url)) {
+                preserved.append(' ').append(url);
+            }
+        }
+        return capped + "…[单行超长截断]" + preserved;
     }
 }

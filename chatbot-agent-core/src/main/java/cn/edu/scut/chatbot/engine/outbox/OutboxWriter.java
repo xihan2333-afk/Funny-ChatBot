@@ -43,17 +43,20 @@ public class OutboxWriter {
     private final TurnMapper turnMapper;
     private final IdGenerator idGenerator;
     private final Clock clock;
+    private final cn.edu.scut.chatbot.engine.session.TranscriptIntakeWriter transcriptIntakeWriter;
 
     public OutboxWriter(OutboxMapper outboxMapper,
                         EffectsQueueMapper effectsQueueMapper,
                         TurnMapper turnMapper,
                         IdGenerator idGenerator,
-                        Clock clock) {
+                        Clock clock,
+                        cn.edu.scut.chatbot.engine.session.TranscriptIntakeWriter transcriptIntakeWriter) {
         this.outboxMapper = outboxMapper;
         this.effectsQueueMapper = effectsQueueMapper;
         this.turnMapper = turnMapper;
         this.idGenerator = idGenerator;
         this.clock = clock;
+        this.transcriptIntakeWriter = transcriptIntakeWriter;
     }
 
     /**
@@ -98,7 +101,17 @@ public class OutboxWriter {
         if (outbox == null) {
             return;
         }
+        boolean firstSettlement = OutboxDO.STATUS_PENDING.equals(outbox.getStatus());
         outboxMapper.settleReport(outboxId, status, reportJson, errorCode, LocalDateTime.now(clock));
+        // 手工补录也进历史（合成回执载荷——补录是回执事实的等价登记）；仅首次结算写，
+        // 重复补录不双写转录
+        if (firstSettlement) {
+            transcriptIntakeWriter.writeDeliveryReport(
+                    new DeliveryReportPayload(Long.toUnsignedString(outboxId), null,
+                            OutboxDO.STATUS_FAILED.equals(status) ? "failed" : "success",
+                            errorCode, null, null, clock.millis(), false),
+                    outbox.getPlatform(), outbox.getBotId(), outbox.getGroupId());
+        }
         if (outbox.getTurnId() != null) {
             advanceTurnSettlement(outbox.getTurnId());
         }
@@ -119,9 +132,16 @@ public class OutboxWriter {
         }
         String status = "success".equals(report.status())
                 ? OutboxDO.STATUS_SETTLED : OutboxDO.STATUS_FAILED;
+        // 幂等口径：仅首次结算（原状态 PENDING）写回执条目——至少一次语义下重投不双写转录
+        boolean firstSettlement = OutboxDO.STATUS_PENDING.equals(outbox.getStatus());
         outboxMapper.settleReport(outboxId, status,
                 cn.edu.scut.chatbot.bootstrap.JsonMappers.valueToStringOrNull(report),
                 report.failureKind(), LocalDateTime.now(clock));
+        // 回执事实进历史：下一次推理才可见（不注入进行中的生成）
+        if (firstSettlement) {
+            transcriptIntakeWriter.writeDeliveryReport(report,
+                    outbox.getPlatform(), outbox.getBotId(), outbox.getGroupId());
+        }
 
         if (outbox.getTurnId() == null) {
             return;   // 非_turn 关联（如任务留痕发言）——结算到行即止

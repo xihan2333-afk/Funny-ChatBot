@@ -12,6 +12,7 @@
                allowed_member_task_categories AS allowedMemberTaskCategories,
                allowed_autonomous_categories  AS allowedAutonomousCategories,
                disabled_tools                 AS disabledTools,
+               disabled_skills AS disabledSkills,
                group_rules                    AS groupRules,
                transcript_retain_policy       AS transcriptRetainPolicy,
                created_at                     AS createdAt,

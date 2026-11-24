@@ -6,7 +6,7 @@ import cn.edu.scut.chatbot.engine.session.SessionManager;
 import cn.edu.scut.chatbot.engine.task.TaskCoordinator;
 import cn.edu.scut.chatbot.engine.task.TaskMapper;
 import cn.edu.scut.chatbot.engine.task.TaskStatus;
-import cn.edu.scut.chatbot.engine.task.WorkerLauncher;
+import cn.edu.scut.chatbot.engine.task.WorkerSignalRegistry;
 import cn.edu.scut.chatbot.infrastructure.redis.GroupStateHash;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,7 +31,7 @@ public class GroupLifecycleManager {
     private final GroupMapper groupMapper;
     private final TaskMapper taskMapper;
     private final TaskCoordinator taskCoordinator;
-    private final WorkerLauncher workerLauncher;
+    private final WorkerSignalRegistry workerSignalRegistry;
     private final SessionManager sessionManager;
     private final GroupStateHash groupStateHash;
     private final Clock clock;
@@ -39,14 +39,14 @@ public class GroupLifecycleManager {
     public GroupLifecycleManager(GroupMapper groupMapper,
                                  TaskMapper taskMapper,
                                  TaskCoordinator taskCoordinator,
-                                 WorkerLauncher workerLauncher,
+                                 WorkerSignalRegistry workerSignalRegistry,
                                  SessionManager sessionManager,
                                  GroupStateHash groupStateHash,
                                  Clock clock) {
         this.groupMapper = groupMapper;
         this.taskMapper = taskMapper;
         this.taskCoordinator = taskCoordinator;
-        this.workerLauncher = workerLauncher;
+        this.workerSignalRegistry = workerSignalRegistry;
         this.sessionManager = sessionManager;
         this.groupStateHash = groupStateHash;
         this.clock = clock;
@@ -110,7 +110,7 @@ public class GroupLifecycleManager {
     private void cancelWorkersOfGroup(String platform, String botId, String groupId) {
         for (var task : taskMapper.selectByGroup(platform, botId, groupId)) {
             if (!TaskStatus.valueOf(task.getStatus()).isTerminal()) {
-                workerLauncher.cancelWorker(task.getId());
+                workerSignalRegistry.cancelWorker(task.getId());
             }
         }
     }

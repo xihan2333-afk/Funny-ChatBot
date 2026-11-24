@@ -1,8 +1,8 @@
 package cn.edu.scut.chatbot.engine.session;
 
-import cn.edu.scut.chatbot.exception.NonRetryableException;
 import cn.edu.scut.chatbot.bootstrap.IdGenerator;
 import cn.edu.scut.chatbot.engine.EngineErrorCodes;
+import cn.edu.scut.chatbot.exception.NonRetryableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -222,29 +222,73 @@ public class SessionManager {
     }
 
     /**
-     * 轮次原子落库（TurnPersister 的实现入口；调用方已在事务内由 mapper 批量写保证）
+     * 轮次原子落库（TurnPersister 的实现入口；调用方已在事务内由 mapper 批量写保证）。
+     * 入库统一兜底截断（源头截断第三道防线）：生成侧产出的超长文本在入库前经条目级截断——
+     * 群友消息的宽松截断在写入侧已完成，此处只兜模型/工具产出的漏网超长。
      */
     public void appendTranscript(AgentSessionDO session,
                                  List<cn.edu.scut.chatbot.loop.message.AgentMessage> messages,
                                  Long runId) {
         List<TranscriptEntryDO> entries = new ArrayList<>(messages.size());
         for (cn.edu.scut.chatbot.loop.message.AgentMessage message : messages) {
+            cn.edu.scut.chatbot.loop.message.AgentMessage bounded = boundEntry(message);
             TranscriptEntryDO entry = new TranscriptEntryDO();
             entry.setId(idGenerator.nextId());
             entry.setSessionId(session.getId());
             entry.setPlatform(session.getPlatform());
             entry.setBotId(session.getBotId());
             entry.setGroupId(session.getGroupId());
-            entry.setKind(message.kind().code());
-            entry.setPayload(transcriptCodec.encode(message));
-            entry.setWeight(message.weight());
-            entry.setOccurredAt(java.time.LocalDateTime.ofInstant(message.occurredAt(), clock.getZone()));
+            entry.setKind(bounded.kind().code());
+            entry.setPayload(transcriptCodec.encode(bounded));
+            entry.setWeight(bounded.weight());
+            entry.setOccurredAt(java.time.LocalDateTime.ofInstant(bounded.occurredAt(), clock.getZone()));
             entry.setRunId(runId);
             entries.add(entry);
         }
         if (!entries.isEmpty()) {
             sessionMapper.insertTranscriptBatch(entries);
         }
+    }
+
+    /**
+     * 条目入库兜底：assistant 文本与工具结果文本应用条目级截断（2000 行 / 6KB / 单行 400）
+     */
+    private cn.edu.scut.chatbot.loop.message.AgentMessage boundEntry(
+            cn.edu.scut.chatbot.loop.message.AgentMessage message) {
+        if (message instanceof cn.edu.scut.chatbot.loop.message.AssistantMessage assistant) {
+            String text = cn.edu.scut.chatbot.context.window.InputTruncator
+                    .truncateEntry(assistant.textContent());
+            if (text != null && !text.equals(assistant.textContent())) {
+                return new cn.edu.scut.chatbot.loop.message.AssistantMessage(
+                        assistant.messageId(), assistant.occurredAt(), assistant.weight(),
+                        assistant.sourceRef(), text, assistant.toolCalls(),
+                        assistant.stopReason(), assistant.usage());
+            }
+        }
+        if (message instanceof cn.edu.scut.chatbot.loop.message.ToolResultMessage toolResult) {
+            List<cn.edu.scut.chatbot.loop.message.ContentPart> bounded = new ArrayList<>();
+            boolean changed = false;
+            for (cn.edu.scut.chatbot.loop.message.ContentPart content : toolResult.content()) {
+                if (content instanceof cn.edu.scut.chatbot.loop.message.TextContent textContent) {
+                    String text = cn.edu.scut.chatbot.context.window.InputTruncator
+                            .truncateEntry(textContent.text());
+                    if (!java.util.Objects.equals(text, textContent.text())) {
+                        changed = true;
+                        bounded.add(new cn.edu.scut.chatbot.loop.message.TextContent(text));
+                        continue;
+                    }
+                }
+                bounded.add(content);
+            }
+            if (changed) {
+                return new cn.edu.scut.chatbot.loop.message.ToolResultMessage(
+                        toolResult.messageId(), toolResult.occurredAt(), toolResult.weight(),
+                        toolResult.sourceRef(), toolResult.callId(), toolResult.toolName(),
+                        bounded, toolResult.isError(), toolResult.terminate(),
+                        toolResult.attachments());
+            }
+        }
+        return message;
     }
 
     /**

@@ -39,6 +39,11 @@ public class GroupConfigDO {
     private String disabledTools;
 
     /**
+     * 群级禁用技能名列表 JSON 数组（技能两级开关的第二级——目录渲染过滤）
+     */
+    private String disabledSkills;
+
+    /**
      * 群规（prompt 群上下文层素材）
      */
     private String groupRules;

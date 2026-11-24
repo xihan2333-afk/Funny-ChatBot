@@ -53,6 +53,13 @@ public interface TriggerEventMapper {
                                           @Param("groupId") String groupId);
 
     /**
+     * 该群最近一条触发器时间（条件唤醒的群活跃/静默判定——MAX 聚合免全量拉取）
+     */
+    java.time.LocalDateTime selectLastOccurredAt(@Param("platform") String platform,
+                                                 @Param("botId") String botId,
+                                                 @Param("groupId") String groupId);
+
+    /**
      * 按 ID 批量取（L1 评估批次上下文）
      */
     List<TriggerEventDO> selectByIds(@Param("ids") List<Long> ids);
