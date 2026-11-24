@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.engine.outbox.OutboxMapper">
+
+    <insert id="insertOutbox">
+        INSERT INTO outbox (id, platform, bot_id, group_id, type, payload, turn_id, task_id,
+                            trace_context, status)
+        VALUES (#{id}, #{platform}, #{botId}, #{groupId}, #{type}, #{payload}, #{turnId}, #{taskId},
+                #{traceContext}, #{status})
+    </insert>
+
+    <select id="selectById" resultType="cn.edu.scut.chatbot.engine.outbox.OutboxDO">
+        SELECT id,
+               platform,
+               bot_id        AS botId,
+               group_id      AS groupId,
+               type,
+               payload,
+               turn_id       AS turnId,
+               task_id       AS taskId,
+               trace_context AS traceContext,
+               status,
+               report,
+               error_code    AS errorCode,
+               settled_at    AS settledAt,
+               created_at    AS createdAt
+        FROM outbox
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByTurn" resultType="cn.edu.scut.chatbot.engine.outbox.OutboxDO">
+        SELECT id,
+               platform,
+               bot_id        AS botId,
+               group_id      AS groupId,
+               type,
+               payload,
+               turn_id       AS turnId,
+               task_id       AS taskId,
+               trace_context AS traceContext,
+               status,
+               report,
+               error_code    AS errorCode,
+               settled_at    AS settledAt,
+               created_at    AS createdAt
+        FROM outbox
+        WHERE turn_id = #{turnId}
+        ORDER BY id
+    </select>
+
+    <select id="selectPendingByTurn" resultType="cn.edu.scut.chatbot.engine.outbox.OutboxDO">
+        SELECT id,
+               platform,
+               bot_id        AS botId,
+               group_id      AS groupId,
+               type,
+               payload,
+               turn_id       AS turnId,
+               task_id       AS taskId,
+               trace_context AS traceContext,
+               status,
+               report,
+               error_code    AS errorCode,
+               settled_at    AS settledAt,
+               created_at    AS createdAt
+        FROM outbox
+        WHERE turn_id = #{turnId}
+          AND status IN ('pending', 'dispatching')
+        ORDER BY id
+    </select>
+
+    <update id="settleReport">
+        UPDATE outbox
+        SET status     = #{status},
+            report     = #{report},
+            error_code = #{errorCode},
+            settled_at = #{settledAt}
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectPendingAll" resultType="cn.edu.scut.chatbot.engine.outbox.OutboxDO">
+        SELECT id,
+               platform,
+               bot_id        AS botId,
+               group_id      AS groupId,
+               type,
+               payload,
+               turn_id       AS turnId,
+               task_id       AS taskId,
+               trace_context AS traceContext,
+               status,
+               report,
+               error_code    AS errorCode,
+               settled_at    AS settledAt,
+               created_at    AS createdAt
+        FROM outbox
+        WHERE status = 'pending'
+        ORDER BY id LIMIT #{limit}
+    </select>
+
+    <update id="claimForDispatch">
+        UPDATE outbox
+        SET status = 'dispatching'
+        WHERE id = #{id}
+          AND status = 'pending'
+    </update>
+
+    <update id="revertDispatch">
+        UPDATE outbox
+        SET status = 'pending'
+        WHERE id = #{id}
+          AND status = 'dispatching'
+    </update>
+
+    <update id="resetStaleDispatching">
+        UPDATE outbox
+        SET status = 'pending'
+        WHERE status = 'dispatching'
+          AND created_at &lt; #{deadline}
+    </update>
+
+</mapper>

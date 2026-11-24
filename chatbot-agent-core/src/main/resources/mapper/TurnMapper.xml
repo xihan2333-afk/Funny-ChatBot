@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.engine.turn.TurnMapper">
+
+    <insert id="insertTurn">
+        INSERT INTO turn (id, platform, bot_id, group_id, status, trigger_ids, outbox_ids,
+                          silent_reason, error_code, accepted_at)
+        VALUES (#{id}, #{platform}, #{botId}, #{groupId}, #{status}, #{triggerIds}, #{outboxIds},
+                #{silentReason}, #{errorCode}, #{acceptedAt})
+    </insert>
+
+    <select id="selectById" resultType="cn.edu.scut.chatbot.engine.turn.TurnDO">
+        SELECT id,
+               platform,
+               bot_id        AS botId,
+               group_id      AS groupId,
+               status,
+               trigger_ids   AS triggerIds,
+               outbox_ids    AS outboxIds,
+               silent_reason AS silentReason,
+               error_code    AS errorCode,
+               accepted_at   AS acceptedAt,
+               finished_at   AS finishedAt
+        FROM turn
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectActiveByGroup" resultType="cn.edu.scut.chatbot.engine.turn.TurnDO">
+        SELECT id,
+               platform,
+               bot_id        AS botId,
+               group_id      AS groupId,
+               status,
+               trigger_ids   AS triggerIds,
+               outbox_ids    AS outboxIds,
+               silent_reason AS silentReason,
+               error_code    AS errorCode,
+               accepted_at   AS acceptedAt,
+               finished_at   AS finishedAt
+        FROM turn
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+          AND status IN ('GENERATING', 'SETTLING')
+    </select>
+
+    <update id="advanceStatus">
+        UPDATE turn
+        SET status        = #{toStatus},
+            finished_at   = #{finishedAt},
+            silent_reason = #{silentReason},
+            error_code    = #{errorCode}
+        WHERE id = #{id}
+          AND status = #{fromStatus}
+    </update>
+
+    <update id="appendOutboxIds">
+        UPDATE turn
+        SET outbox_ids = #{outboxIds}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateTriggerIds">
+        UPDATE turn
+        SET trigger_ids = #{triggerIds}
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectQueuedByGroup" resultType="cn.edu.scut.chatbot.engine.turn.TurnDO">
+        SELECT id,
+               platform,
+               bot_id        AS botId,
+               group_id      AS groupId,
+               status,
+               trigger_ids   AS triggerIds,
+               outbox_ids    AS outboxIds,
+               silent_reason AS silentReason,
+               error_code    AS errorCode,
+               accepted_at   AS acceptedAt,
+               finished_at   AS finishedAt
+        FROM turn
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+          AND status = 'ACCEPTED'
+        ORDER BY accepted_at
+    </select>
+
+    <select id="selectNonTerminalAll" resultType="cn.edu.scut.chatbot.engine.turn.TurnDO">
+        SELECT id,
+               platform,
+               bot_id        AS botId,
+               group_id      AS groupId,
+               status,
+               trigger_ids   AS triggerIds,
+               outbox_ids    AS outboxIds,
+               silent_reason AS silentReason,
+               error_code    AS errorCode,
+               accepted_at   AS acceptedAt,
+               finished_at   AS finishedAt
+        FROM turn
+        WHERE status IN ('ACCEPTED', 'GENERATING', 'SETTLING')
+    </select>
+
+    <select id="selectTimedOutQueued" resultType="cn.edu.scut.chatbot.engine.turn.TurnDO">
+        SELECT id,
+               platform,
+               bot_id        AS botId,
+               group_id      AS groupId,
+               status,
+               trigger_ids   AS triggerIds,
+               outbox_ids    AS outboxIds,
+               silent_reason AS silentReason,
+               error_code    AS errorCode,
+               accepted_at   AS acceptedAt,
+               finished_at   AS finishedAt
+        FROM turn
+        WHERE status = 'ACCEPTED'
+          AND accepted_at &lt; #{deadline}
+    </select>
+
+</mapper>

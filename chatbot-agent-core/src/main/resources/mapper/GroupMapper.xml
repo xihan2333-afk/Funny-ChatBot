@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.engine.intake.GroupMapper">
+
+    <insert id="upsertDiscovered">
+        INSERT INTO `group` (platform, bot_id, group_id, group_name, lifecycle, in_service)
+        VALUES (#{platform}, #{botId}, #{groupId}, #{groupName}, 'DISCOVERED', 0) ON DUPLICATE KEY
+        UPDATE group_name = IF(VALUES (group_name) IS NOT NULL, VALUES (group_name), group_name)
+    </insert>
+
+    <select id="selectByGroup" resultType="cn.edu.scut.chatbot.engine.intake.GroupDO">
+        SELECT id,
+               platform,
+               bot_id                    AS botId,
+               group_id                  AS groupId,
+               group_name                AS groupName,
+               lifecycle,
+               in_service                AS inService,
+               paused_at                 AS pausedAt,
+               paused_accumulated_millis AS pausedAccumulatedMillis,
+               discovered_at             AS discoveredAt,
+               created_at                AS createdAt,
+               updated_at                AS updatedAt
+        FROM `group`
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+    </select>
+
+    <select id="selectAllInService" resultType="cn.edu.scut.chatbot.engine.intake.GroupDO">
+        SELECT id,
+               platform,
+               bot_id                    AS botId,
+               group_id                  AS groupId,
+               group_name                AS groupName,
+               lifecycle,
+               in_service                AS inService,
+               paused_at                 AS pausedAt,
+               paused_accumulated_millis AS pausedAccumulatedMillis,
+               discovered_at             AS discoveredAt,
+               created_at                AS createdAt,
+               updated_at                AS updatedAt
+        FROM `group`
+        WHERE in_service = 1
+          AND lifecycle = 'ACTIVE'
+    </select>
+
+    <update id="updateLifecycle">
+        UPDATE `group`
+        SET lifecycle = #{lifecycle}
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+    </update>
+
+    <update id="updateInService">
+        UPDATE `group`
+        SET in_service = #{inService}
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+    </update>
+
+    <update id="markPaused">
+        UPDATE `group`
+        SET lifecycle = 'PAUSED',
+            paused_at = #{pausedAt}
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+    </update>
+
+    <update id="resumeAndAccumulate">
+        UPDATE `group`
+        SET lifecycle                 = 'ACTIVE',
+            paused_accumulated_millis = paused_accumulated_millis + #{addMillis},
+            paused_at                 = NULL
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+    </update>
+
+</mapper>

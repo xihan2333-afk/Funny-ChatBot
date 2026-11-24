@@ -93,6 +93,34 @@
             <artifactId>spring-boot-starter-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- 单元测试 Spock（Groovy 4.0.15 由 parent 锁定，gmavenplus 编译 src/test/groovy） -->
+        <dependency>
+            <groupId>org.spockframework</groupId>
+            <artifactId>spock-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.groovy</groupId>
+            <artifactId>groovy</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 异步断言（宪法：禁 Thread.sleep，一律 Awaitility 等可观察条件） -->
+        <dependency>
+            <groupId>org.awaitility</groupId>
+            <artifactId>awaitility</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- 集成测试真容器（MySQL 8 官方模块 + Redis 用核心包 GenericContainer） -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>mysql</artifactId>
+            <scope>test</scope>
+        </dependency>
         <!-- 包依赖规约测试（ArchUnit 四条规则，设计方案 3.1.3） -->
         <dependency>
             <groupId>com.tngtech.archunit</groupId>

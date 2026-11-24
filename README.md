@@ -16,28 +16,46 @@
 
 ## 构建与测试
 
-要求 JDK 21、Maven 3.6+。接入层相关的构建与验证命令：
+要求 JDK 21、Maven 3.6+（PATH 默认低于 21 时显式指定 JAVA_HOME，例如
+`JAVA_HOME=C:\Users\Administrator\.jdks\temurin-21.0.12`）。全部后端模块的构建与验证命令：
 
 ```bash
-# 单元测试 + ArchUnit 规约测试（秒级，无需 Docker）
-mvn -pl chatbot-contract,chatbot-access-layer -am test
+# 接入层 + 主服务 + 沙箱：单元测试 + ArchUnit 规约测试（秒级，无需 Docker）
+mvn -pl chatbot-contract,chatbot-access-layer,chatbot-agent-core,chatbot-sandbox-executor -am test
 
-# 全量验证（含 Testcontainers 集成测试，需要本机 Docker）
-mvn -pl chatbot-contract,chatbot-access-layer -am verify
+# 全量验证（含 Testcontainers 集成测试与沙箱真容器隔离测试，需要本机 Docker）
+mvn -pl chatbot-contract,chatbot-access-layer,chatbot-agent-core,chatbot-sandbox-executor -am verify
 
 # 前端
 cd chatbot-admin-web && npm install && npm run build
 ```
 
-环境变量参照仓库根 `.env.example`（部署层配置：协议端地址与令牌、MySQL / Redis 连接、雪花机器号）。
+环境变量参照仓库根 `.env.example`（部署层配置：协议端地址与令牌、MySQL / Redis 连接、
+雪花机器号、凭证加密密钥 CHATBOT_CREDENTIAL_KEY）。
 
-## 端到端验证入口
+## 主服务与沙箱（002 agent-core-runtime 交付）
 
-接入层「听得见、说得出、断了能续上」的完整验证场景（场景 A 群消息入流 / 场景 B 出事件投递与
-回执闭环 / 场景 C 断线重连与 pending 重投）定义在
-`.specify/specs/001-access-layer/quickstart.md`，全部场景均有同口径的自动化集成测试
-（`chatbot-access-layer` 下 `*IT` 类，`mvn verify` 执行）覆盖；compose 冒烟入口在
-`deploy/docker-compose.yml`。
+`chatbot-agent-core` 是主服务：循环内核（AgentLoop，零业务依赖）、核心引擎（分级闸门、
+Turn/Task 状态机、Effects 副作用队列、Outbox 出站闭环、常驻会话、自主调度、群生命周期）、
+工具体系（十五项内置 + HTTP 泛化 + SSRF 防线）、Prompt 四层组装与统一版本管理、Skill
+渐进披露、上下文窗口与压缩。`chatbot-sandbox-executor` 是独立沙箱执行服务（runCode 的
+隔离执行面：一次性容器、无网络、资源受限、双计时强杀）。
+
+模型真实调用（LLM API）是下一个 feature（设计方案 2.3）——当前主服务以 StreamFn 契约 +
+测试剧本假件驱动全链路，生产装配缺实现时生成按 engine.* 错误结算。核心运行时的端到端
+验证场景（A 被动回应全链路 / B 安静忽略 / C 工具循环 / D 崩溃恢复 / E Task 与 Worker /
+F runCode 沙箱 / G 上下文压缩）定义在 `.specify/specs/002-agent-core-runtime/quickstart.md`，
+自动化集成测试在 `chatbot-agent-core` / `chatbot-sandbox-executor` 下 `*IT` 与
+`*Scenario` 类（`mvn verify` 执行，需 Docker；沙箱测试另需 python:3.11-slim 镜像——
+第三方镜像被 mirror 封锁时按 napcat 的 tar 中转经验 `docker save | docker load` 导入）。
+
+## 起栈
+
+```bash
+cd deploy && docker compose up -d
+# mysql / redis / napcat / access-layer / agent-core / sandbox-executor 六服务；
+# 隔离边界部署原则：只有 sandbox-executor 挂 Docker 控制通道，agent-core 不挂
+```
 
 ## 技术栈规约
 
