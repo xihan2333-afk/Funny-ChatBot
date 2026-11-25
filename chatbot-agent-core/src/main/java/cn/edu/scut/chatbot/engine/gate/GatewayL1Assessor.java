@@ -39,10 +39,12 @@ public class GatewayL1Assessor implements L1AssessmentModel {
     public List<AssessedDecision> assess(String assessmentPrompt,
                                          List<TriggerDigest> batchDigests,
                                          List<String> recentMessages,
-                                         String personaPreference) throws Exception {
+                                         String personaPreference,
+                                         String groupStateDigest) throws Exception {
         CallOnceResult result = gateway.callOnce(ModelCatalog.SLOT_EVAL_L1,
                 LlmCallMeta.of("l1", null), assessmentPrompt,
-                List.of(LlmMessage.user(assembleInput(batchDigests, recentMessages, personaPreference))),
+                List.of(LlmMessage.user(assembleInput(batchDigests, recentMessages,
+                        personaPreference, groupStateDigest))),
                 L1_PARAMS);
         if (result.failed()) {
             throw new IllegalStateException("L1 调用失败（" + result.errorCode() + "）：" + result.errorMessage());
@@ -51,10 +53,11 @@ public class GatewayL1Assessor implements L1AssessmentModel {
     }
 
     /**
-     * 输入面组装：本批触发器 + 近期消息投影 + 注意力偏好，输出指令要求 JSON 数组
+     * 输入面组装：本批触发器 + 近期消息投影 + 注意力偏好 + 群状态摘要，输出指令要求 JSON 数组
      */
     private String assembleInput(List<TriggerDigest> batchDigests,
-                                 List<String> recentMessages, String personaPreference) {
+                                 List<String> recentMessages, String personaPreference,
+                                 String groupStateDigest) {
         StringBuilder input = new StringBuilder("【本批待评估触发器】\n");
         for (TriggerDigest digest : batchDigests) {
             input.append("- dedupKey=").append(digest.dedupKey())
@@ -67,6 +70,9 @@ public class GatewayL1Assessor implements L1AssessmentModel {
         }
         if (personaPreference != null && !personaPreference.isBlank()) {
             input.append("\n【注意力偏好】\n").append(personaPreference).append('\n');
+        }
+        if (groupStateDigest != null && !groupStateDigest.isBlank()) {
+            input.append("\n【群状态】\n").append(groupStateDigest).append('\n');
         }
         input.append("\n对每条触发器输出判断，格式为 JSON 数组（只输出 JSON，不要多余文字）：\n")
                 .append("[{\"dedupKey\":\"...\",\"decision\":\"accept 或 ignore\",\"reason\":\"简短理由\"}]");

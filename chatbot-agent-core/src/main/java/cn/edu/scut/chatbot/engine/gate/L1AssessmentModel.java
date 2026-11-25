@@ -17,15 +17,18 @@ public interface L1AssessmentModel {
      *
      * @param assessmentPrompt  评估提示词（standalone 层模板渲染结果）
      * @param batchDigests      本批触发器摘要列表（含 dedupKey）
-     * @param recentMessages    近期群消息投影（有界上下文三路之一）
+     * @param recentMessages    近期群消息投影（有界上下文三路之一；发言人态度显著者
+     *                          行首带档位标注如「[挚友]张三：...」——无感不标注）
      * @param personaPreference 人格注意力偏好摘要（健谈度/话题敏感/主动性/插话倾向）
+     * @param groupStateDigest  群状态摘要（活跃度/当前话题/近期氛围/Agent 发言频率）
      * @return 每条触发器一项的结构化决策（合法值 accept / ignore）
      * @throws Exception 调用失败（指数退避重试由 L1BatchAssessor 负责，本接口不吞异常）
      */
     List<AssessedDecision> assess(String assessmentPrompt,
                                   List<TriggerDigest> batchDigests,
                                   List<String> recentMessages,
-                                  String personaPreference) throws Exception;
+                                  String personaPreference,
+                                  String groupStateDigest) throws Exception;
 
     /**
      * 本批触发器摘要（输入面）

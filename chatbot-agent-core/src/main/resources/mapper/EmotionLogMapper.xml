@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.memory.emotion.EmotionLogMapper">
+
+    <insert id="insertLog">
+        INSERT INTO emotion_log (id, platform, bot_id, group_id, persona_id, label,
+                                 intensity_after, delta, source, cause, occurred_at)
+        VALUES (#{id}, #{platform}, #{botId}, #{groupId}, #{personaId}, #{label},
+                #{intensityAfter}, #{delta}, #{source}, #{cause}, #{occurredAt})
+    </insert>
+
+    <select id="sumAbsDeltaSince" resultType="java.lang.Long">
+        SELECT COALESCE(SUM(ABS(delta)), 0)
+        FROM emotion_log
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+          AND occurred_at &gt;= #{since}
+    </select>
+
+    <delete id="deleteBefore">
+        DELETE
+        FROM emotion_log
+        WHERE occurred_at &lt; #{cutoff} LIMIT #{limit}
+    </delete>
+
+</mapper>

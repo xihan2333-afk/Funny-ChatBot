@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.memory.entry.MemoryEntryMapper">
+
+    <insert id="insertEntry">
+        INSERT INTO memory_entry (id, platform, bot_id, group_id, memory_type, content, user_id,
+                                  keywords, topic_lifecycle, occurred_at, sediment_at, strength,
+                                  last_accessed_at, status, superseded_by, source_ref)
+        VALUES (#{id}, #{platform}, #{botId}, #{groupId}, #{memoryType}, #{content}, #{userId},
+                #{keywords}, #{topicLifecycle}, #{occurredAt}, #{sedimentAt}, #{strength},
+                #{lastAccessedAt}, #{status}, #{supersededBy}, #{sourceRef})
+    </insert>
+
+    <sql id="columns">
+        id
+        , platform, bot_id AS botId, group_id AS groupId, memory_type AS memoryType, content,
+        user_id AS userId, keywords, topic_lifecycle AS topicLifecycle,
+        occurred_at AS occurredAt, sediment_at AS sedimentAt, strength,
+        last_accessed_at AS lastAccessedAt, status, superseded_by AS supersededBy,
+        source_ref AS sourceRef, created_at AS createdAt, updated_at AS updatedAt
+    </sql>
+
+    <select id="selectById" resultType="cn.edu.scut.chatbot.memory.entry.MemoryEntryDO">
+        SELECT
+        <include refid="columns"/>
+        FROM memory_entry
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByIds" resultType="cn.edu.scut.chatbot.memory.entry.MemoryEntryDO">
+        SELECT
+        <include refid="columns"/>
+        FROM memory_entry
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <select id="countActiveByGroup" resultType="long">
+        SELECT COUNT(*)
+        FROM memory_entry
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+          AND status = 'active'
+    </select>
+
+    <select id="selectActiveByGroup" resultType="cn.edu.scut.chatbot.memory.entry.MemoryEntryDO">
+        SELECT
+        <include refid="columns"/>
+        FROM memory_entry
+        WHERE platform = #{platform}
+        AND bot_id = #{botId}
+        AND group_id = #{groupId}
+        AND status = 'active'
+        ORDER BY id
+    </select>
+
+    <select id="selectActiveAfterId" resultType="cn.edu.scut.chatbot.memory.entry.MemoryEntryDO">
+        SELECT
+        <include refid="columns"/>
+        FROM memory_entry
+        WHERE status = 'active'
+        AND id &gt; #{afterId}
+        ORDER BY id
+        LIMIT #{limit}
+    </select>
+
+    <select id="selectLowestStrengthActive" resultType="cn.edu.scut.chatbot.memory.entry.MemoryEntryDO">
+        SELECT
+        <include refid="columns"/>
+        FROM memory_entry
+        WHERE platform = #{platform}
+        AND bot_id = #{botId}
+        AND group_id = #{groupId}
+        AND status = 'active'
+        ORDER BY strength ASC, id ASC
+        LIMIT #{limit}
+    </select>
+
+    <update id="reinforceBatch">
+        UPDATE memory_entry
+        SET strength = LEAST(100, strength + #{boost}),
+        last_accessed_at = #{now},
+        updated_at = CURRENT_TIMESTAMP(3)
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </update>
+
+    <update id="updateStrengthAndStatus">
+        UPDATE memory_entry
+        SET strength   = #{strength},
+            status     = #{status},
+            updated_at = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteArchivedBefore">
+        DELETE
+        FROM memory_entry
+        WHERE status = 'archived'
+          AND updated_at &lt; #{cutoff} LIMIT #{limit}
+    </delete>
+
+    <update id="supersede">
+        UPDATE memory_entry
+        SET status        = 'superseded',
+            superseded_by = #{newId},
+            updated_at    = CURRENT_TIMESTAMP(3)
+        WHERE id = #{oldId}
+    </update>
+
+    <update id="revokeSupersede">
+        UPDATE memory_entry
+        SET status        = 'active',
+            superseded_by = NULL,
+            updated_at    = CURRENT_TIMESTAMP(3)
+        WHERE id = #{oldId}
+    </update>
+
+    <update id="updateContent">
+        UPDATE memory_entry
+        SET content    = #{content},
+            updated_at = CURRENT_TIMESTAMP(3)
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteByIds">
+        DELETE FROM memory_entry
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+
+    <update id="updateTopicLifecycle">
+        UPDATE memory_entry
+        SET topic_lifecycle = #{lifecycle},
+            updated_at      = CURRENT_TIMESTAMP(3)
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectTopicByLifecycle" resultType="cn.edu.scut.chatbot.memory.entry.MemoryEntryDO">
+        SELECT
+        <include refid="columns"/>
+        FROM memory_entry
+        WHERE platform = #{platform}
+        AND bot_id = #{botId}
+        AND group_id = #{groupId}
+        AND memory_type = 'topic'
+        AND topic_lifecycle = #{lifecycle}
+        ORDER BY id
+    </select>
+
+    <select id="selectActiveGroups" resultType="cn.edu.scut.chatbot.memory.entry.MemoryGroupDO">
+        SELECT DISTINCT platform, bot_id AS botId, group_id AS groupId
+        FROM memory_entry
+        WHERE status = 'active'
+    </select>
+
+</mapper>

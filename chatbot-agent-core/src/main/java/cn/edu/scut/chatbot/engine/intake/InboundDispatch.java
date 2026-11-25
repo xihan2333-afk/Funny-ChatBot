@@ -42,6 +42,9 @@ public class InboundDispatch implements InboundStreamConsumer.InboundHandler {
     private final cn.edu.scut.chatbot.engine.turn.TurnCoordinator turnCoordinator;
     private final SystemParamService systemParamService;
     private final Clock clock;
+    private final cn.edu.scut.chatbot.memory.emotion.EmotionRuleEngine emotionRuleEngine;
+    private final cn.edu.scut.chatbot.memory.social.GroupStateService groupStateService;
+    private final cn.edu.scut.chatbot.memory.social.TopicLifecycleService topicLifecycleService;
 
     public InboundDispatch(IntakeService intakeService,
                            TriggerEventMapper triggerEventMapper,
@@ -52,7 +55,10 @@ public class InboundDispatch implements InboundStreamConsumer.InboundHandler {
                            L0Gate l0Gate,
                            cn.edu.scut.chatbot.engine.turn.TurnCoordinator turnCoordinator,
                            SystemParamService systemParamService,
-                           Clock clock) {
+                           Clock clock,
+                           cn.edu.scut.chatbot.memory.emotion.EmotionRuleEngine emotionRuleEngine,
+                           cn.edu.scut.chatbot.memory.social.GroupStateService groupStateService,
+                           cn.edu.scut.chatbot.memory.social.TopicLifecycleService topicLifecycleService) {
         this.intakeService = intakeService;
         this.triggerEventMapper = triggerEventMapper;
         this.effectsQueueMapper = effectsQueueMapper;
@@ -63,6 +69,9 @@ public class InboundDispatch implements InboundStreamConsumer.InboundHandler {
         this.turnCoordinator = turnCoordinator;
         this.systemParamService = systemParamService;
         this.clock = clock;
+        this.emotionRuleEngine = emotionRuleEngine;
+        this.groupStateService = groupStateService;
+        this.topicLifecycleService = topicLifecycleService;
     }
 
     @Override
@@ -86,6 +95,16 @@ public class InboundDispatch implements InboundStreamConsumer.InboundHandler {
         // 刷新群活跃（调度器静默判定输入）
         if (envelope.groupId() != null) {
             groupStateHash.touchActive(envelope.platform(), envelope.botId(), envelope.groupId());
+            // 情绪挂点（T046）：与 L0 上下文构建同点、同群串行执行器内顺带执行——
+            // 识别互动事件走规则通道（一次事件双落点）；情绪不进 L0 判定（L0 纯代码）
+            emotionRuleEngine.onGroupMessage(envelope);
+            // 群状态与话题挂点（T055）：同群串行执行器内顺带执行——六状态项事件驱动更新
+            // 与话题再热判定（keywords 轻量匹配），天然保序不并发
+            cn.edu.scut.chatbot.bootstrap.GroupKey groupKey = new cn.edu.scut.chatbot.bootstrap.GroupKey(
+                    envelope.platform(), envelope.botId(), envelope.groupId());
+            String messageText = messageTextOf(envelope);
+            groupStateService.onGroupMessage(groupKey, senderUserIdOf(envelope), messageText);
+            topicLifecycleService.onGroupMessage(groupKey, messageText);
         }
 
         L0Gate.L0Decision decision = l0Gate.judge(buildL0Context(envelope));
@@ -106,6 +125,34 @@ public class InboundDispatch implements InboundStreamConsumer.InboundHandler {
                 log.warn("acceptTurn 被拒绝（排队超上限） reason={}", rejected.getReason());
             }
         }
+    }
+
+    /**
+     * 消息纯文本（TextPart 拼接——群状态与话题挂点的输入；非群消息返回空串）
+     */
+    private String messageTextOf(EventEnvelope envelope) {
+        if (!(envelope.payload() instanceof GroupMessagePayload groupMessage)
+                || groupMessage.parts() == null) {
+            return "";
+        }
+        StringBuilder text = new StringBuilder();
+        for (var part : groupMessage.parts()) {
+            if (part instanceof TextPart textPart && textPart.text() != null) {
+                text.append(textPart.text());
+            }
+        }
+        return text.toString();
+    }
+
+    /**
+     * 发言人（群消息 sender 优先、回退 envelope.userId）
+     */
+    private String senderUserIdOf(EventEnvelope envelope) {
+        if (envelope.payload() instanceof GroupMessagePayload groupMessage
+                && groupMessage.sender() != null) {
+            return groupMessage.sender().userId();
+        }
+        return envelope.userId();
     }
 
     private L0Gate.L0Context buildL0Context(EventEnvelope envelope) {

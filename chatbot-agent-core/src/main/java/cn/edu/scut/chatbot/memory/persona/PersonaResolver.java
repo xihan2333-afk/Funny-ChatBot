@@ -1,4 +1,4 @@
-package cn.edu.scut.chatbot.prompt;
+package cn.edu.scut.chatbot.memory.persona;
 
 import cn.edu.scut.chatbot.bootstrap.JsonMappers;
 import cn.edu.scut.chatbot.engine.session.AgentSessionDO;
@@ -12,19 +12,20 @@ import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
- * 人格解析器（T088）：身份层所需字段子集 + 注意力偏好直取（L1 输入）+
- * 表达变体加权抽取（权重归一，Run 启动时定——同 Run 内稳定）。
+ * 人格解析器（自 prompt 包正位迁入——3.1.3 既定）：身份层所需字段子集 +
+ * 注意力偏好直取（L1 输入）+ 表达变体加权抽取（权重归一，Run 启动时定——同 Run 内稳定）。
+ * prompt 包的 PromptAssembler 是本类的消费方（依赖方向 prompt → memory）。
  */
 @Component
 public class PersonaResolver {
 
     private static final Logger log = LoggerFactory.getLogger(PersonaResolver.class);
 
-    private final PromptFragmentMapper fragmentMapper;
+    private final PersonaMapper personaMapper;
     private final AgentSessionMapper sessionMapper;
 
-    public PersonaResolver(PromptFragmentMapper fragmentMapper, AgentSessionMapper sessionMapper) {
-        this.fragmentMapper = fragmentMapper;
+    public PersonaResolver(PersonaMapper personaMapper, AgentSessionMapper sessionMapper) {
+        this.personaMapper = personaMapper;
         this.sessionMapper = sessionMapper;
     }
 
@@ -35,14 +36,45 @@ public class PersonaResolver {
         if (groupId != null) {
             AgentSessionDO session = sessionMapper.selectByGroup(platform, botId, groupId);
             if (session != null && session.getPersonaId() != null) {
-                for (PersonaDO persona : fragmentMapper.selectAllPersonas()) {
+                for (PersonaDO persona : personaMapper.selectAllPersonas()) {
                     if (session.getPersonaId().equals(persona.getId())) {
                         return persona;
                     }
                 }
             }
         }
-        return fragmentMapper.selectDefaultPersona();
+        return personaMapper.selectDefaultPersona();
+    }
+
+    /**
+     * 人格切换（T039）：改 agent_session.persona_id 下个 Run 生效（快照纪律——
+     * 进行中 Run 不受扰）；记忆画像群状态不随切换清空（换人格不丢记忆——本方法
+     * 结构性不触碰记忆与画像表）；情绪重置为新人格基线。
+     */
+    public void switchPersona(cn.edu.scut.chatbot.bootstrap.GroupKey group, long newPersonaId) {
+        AgentSessionDO session = sessionMapper.selectByGroup(
+                group.platform(), group.botId(), group.groupId());
+        if (session == null) {
+            throw new IllegalArgumentException("会话不存在，先在群内说话建立会话："
+                    + group.groupId());
+        }
+        PersonaDO target = null;
+        for (PersonaDO persona : personaMapper.selectAllPersonas()) {
+            if (newPersonaId == persona.getId()) {
+                target = persona;
+                break;
+            }
+        }
+        if (target == null) {
+            throw new IllegalArgumentException("目标人格不存在 personaId=" + newPersonaId);
+        }
+        sessionMapper.updatePersona(session.getId(), newPersonaId);
+        // 情绪重置为新人格基线（label=基线标签、强度回基线档）——崩溃恢复语义同源
+        String baseLabel = PersonaRuntime.parse(target).emotion().baseLabel();
+        sessionMapper.updateEmotion(session.getId(),
+                "{\"label\":\"" + baseLabel + "\",\"intensity\":50}");
+        log.info("人格切换 group={} → personaId={}（{}）情绪回基线 {}",
+                group.groupId(), newPersonaId, target.getName(), baseLabel);
     }
 
     /**

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.memory.persona.PersonaEvolutionSignalsMapper">
+
+    <select id="aggregateInternalDecisions" resultType="java.util.LinkedHashMap">
+        SELECT COUNT(*)                                               AS totalCount,
+               SUM(CASE WHEN t.decision = 'accept' THEN 1 ELSE 0 END) AS acceptedCount
+        FROM trigger_event t
+                 JOIN agent_session s
+                      ON t.platform = s.platform AND t.bot_id = s.bot_id
+                          AND t.group_id = s.group_id
+        WHERE s.persona_id = #{personaId}
+          AND t.trigger_kind = 'internal'
+          AND t.occurred_at &gt;= #{since}
+    </select>
+
+    <select id="aggregateTranscriptKinds" resultType="java.util.LinkedHashMap">
+        SELECT e.kind AS kind, COUNT(*) AS totalCount
+        FROM transcript_entry e
+                 JOIN agent_session s ON e.session_id = s.id
+        WHERE s.persona_id = #{personaId}
+          AND e.occurred_at &gt;= #{since}
+        GROUP BY e.kind
+    </select>
+
+    <select id="selectPreferenceContents" resultType="java.lang.String">
+        SELECT m.content
+        FROM memory_entry m
+                 JOIN agent_session s
+                      ON m.platform = s.platform AND m.bot_id = s.bot_id
+                          AND m.group_id = s.group_id
+        WHERE s.persona_id = #{personaId}
+          AND m.memory_type = 'preference'
+          AND m.status = 'active'
+          AND m.occurred_at &gt;= #{since}
+    </select>
+
+    <select id="aggregateEmotionLabels" resultType="java.util.LinkedHashMap">
+        SELECT e.label                AS label,
+               COUNT(*)               AS totalCount,
+               AVG(e.intensity_after) AS avgIntensity
+        FROM emotion_log e
+                 JOIN agent_session s
+                      ON e.platform = s.platform AND e.bot_id = s.bot_id
+                          AND e.group_id = s.group_id
+        WHERE s.persona_id = #{personaId}
+          AND e.occurred_at &gt;= #{since}
+        GROUP BY e.label
+        ORDER BY totalCount DESC
+    </select>
+</mapper>

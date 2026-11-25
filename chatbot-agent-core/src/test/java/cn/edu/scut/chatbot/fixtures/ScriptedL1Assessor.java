@@ -75,7 +75,8 @@ public class ScriptedL1Assessor implements L1AssessmentModel {
     public List<AssessedDecision> assess(String assessmentPrompt,
                                          List<TriggerDigest> batchDigests,
                                          List<String> recentMessages,
-                                         String personaPreference) throws Exception {
+                                         String personaPreference,
+                                         String groupStateDigest) throws Exception {
         callCount++;
         if (mode == Mode.ALWAYS_FAIL) {
             throw new IllegalStateException("剧本注入：L1 评估持续失败");

@@ -1,11 +1,12 @@
-package cn.edu.scut.chatbot.prompt;
+package cn.edu.scut.chatbot.memory.persona;
 
 import lombok.Data;
 
 import java.time.LocalDateTime;
 
 /**
- * persona 表 DO：人格定义（definition 七字段组 JSON；完整人格系统归 2.4）。
+ * persona 表 DO（自 prompt 包正位迁入——3.1.3 既定：人格实体建模归 memory/persona）：
+ * definition 七字段组 JSON（解析归 PersonaRuntime，字段缺失回默认不整体失败）。
  */
 @Data
 public class PersonaDO {

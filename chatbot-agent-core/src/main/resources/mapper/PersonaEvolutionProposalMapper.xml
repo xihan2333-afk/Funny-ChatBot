@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.memory.persona.PersonaEvolutionProposalMapper">
+
+    <insert id="insertProposal">
+        INSERT INTO persona_evolution_proposal (id, persona_id, period_start, period_end,
+                                                signals_digest, proposal_items, status)
+        VALUES (#{id}, #{personaId}, #{periodStart}, #{periodEnd},
+                #{signalsDigest}, #{proposalItems}, #{status})
+    </insert>
+
+    <select id="selectById" resultType="cn.edu.scut.chatbot.memory.persona.PersonaEvolutionProposalDO">
+        SELECT id,
+               persona_id,
+               period_start,
+               period_end,
+               signals_digest,
+               proposal_items,
+               status,
+               reviewer,
+               remark,
+               created_at
+        FROM persona_evolution_proposal
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByPersona" resultType="cn.edu.scut.chatbot.memory.persona.PersonaEvolutionProposalDO">
+        SELECT id,
+               persona_id,
+               period_start,
+               period_end,
+               signals_digest,
+               proposal_items,
+               status,
+               reviewer,
+               remark,
+               created_at
+        FROM persona_evolution_proposal
+        WHERE persona_id = #{personaId}
+        ORDER BY created_at DESC
+    </select>
+
+    <update id="updateReview">
+        UPDATE persona_evolution_proposal
+        SET status   = #{status},
+            reviewer = #{reviewer},
+            remark   = #{remark}
+        WHERE id = #{id}
+          AND status = 'pending_review'
+    </update>
+
+    <update id="updateProposalItems">
+        UPDATE persona_evolution_proposal
+        SET proposal_items = #{proposalItems}
+        WHERE id = #{id}
+    </update>
+</mapper>

@@ -64,61 +64,6 @@
         WHERE fragment_key = #{fragmentKey}
     </delete>
 
-    <!-- ===== persona ===== -->
-
-    <select id="selectDefaultPersona" resultType="cn.edu.scut.chatbot.prompt.PersonaDO">
-        SELECT id,
-               name,
-               definition,
-               is_default AS isDefault,
-               status,
-               version_no AS versionNo,
-               created_at AS createdAt,
-               updated_at AS updatedAt
-        FROM persona
-        WHERE is_default = 1 LIMIT 1
-    </select>
-
-    <select id="selectPersonaByName" resultType="cn.edu.scut.chatbot.prompt.PersonaDO">
-        SELECT id,
-               name,
-               definition,
-               is_default AS isDefault,
-               status,
-               version_no AS versionNo,
-               created_at AS createdAt,
-               updated_at AS updatedAt
-        FROM persona
-        WHERE name = #{name}
-    </select>
-
-    <select id="selectAllPersonas" resultType="cn.edu.scut.chatbot.prompt.PersonaDO">
-        SELECT id,
-               name,
-               definition,
-               is_default AS isDefault,
-               status,
-               version_no AS versionNo,
-               created_at AS createdAt,
-               updated_at AS updatedAt
-        FROM persona
-        ORDER BY id
-    </select>
-
-    <insert id="insertPersona">
-        INSERT INTO persona (name, definition, is_default, status, version_no)
-        VALUES (#{name}, #{definition}, #{isDefault}, #{status}, #{versionNo})
-    </insert>
-
-    <update id="updatePersona">
-        UPDATE persona
-        SET definition = #{definition},
-            is_default = #{isDefault},
-            status     = #{status},
-            version_no = #{versionNo}
-        WHERE name = #{name}
-    </update>
-
     <!-- ===== content_version ===== -->
 
     <insert id="insertVersion">

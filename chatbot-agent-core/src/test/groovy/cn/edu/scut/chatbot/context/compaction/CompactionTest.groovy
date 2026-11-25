@@ -11,14 +11,38 @@ import cn.edu.scut.chatbot.loop.message.AssistantMessage
 import cn.edu.scut.chatbot.loop.message.SummaryEntry
 import cn.edu.scut.chatbot.loop.message.ToolResultMessage
 import cn.edu.scut.chatbot.loop.message.UserMessage
+import cn.edu.scut.chatbot.memory.sediment.SedimentJobWriter
 import spock.lang.Specification
 
 import java.time.Instant
 
 class CompactionTest extends Specification {
 
+    private SedimentJobWriter noopJobWriter() {
+        return { group, summaryEntryId, range -> } as SedimentJobWriter
+    }
+
+    private cn.edu.scut.chatbot.memory.social.GroupStateService noopGroupState() {
+        return [
+                onGroupMessage       : { group, sender, text -> },
+                onBotSend            : { group -> },
+                onCompactionRefreshed: { group, topicDigest, vibe -> },
+                read                 : { group -> null },
+                rebuild              : { group -> },
+                renderDigest         : { snapshot -> "" }
+        ] as cn.edu.scut.chatbot.memory.social.GroupStateService
+    }
+
+    private cn.edu.scut.chatbot.memory.social.TopicLifecycleService noopTopicLifecycle() {
+        return [
+                onCompactionRefreshed: { group, topics -> },
+                onGroupMessage       : { group, text -> },
+                runDailyCloseSweep   : { -> }
+        ] as cn.edu.scut.chatbot.memory.social.TopicLifecycleService
+    }
+
     def compactor = new TranscriptCompactor(null, null, null, null, { event -> },
-            new DeterministicSummaryGenerator())
+            new DeterministicSummaryGenerator(), noopJobWriter(), noopGroupState(), noopTopicLifecycle())
 
     private UserMessage user(String id, int offset) {
         return new UserMessage(id, Instant.ofEpochSecond(1775000000 + offset), 50, null, "10086",
@@ -54,7 +78,7 @@ class CompactionTest extends Specification {
 
     def "切点本已安全时不动（对完整在近端或无工具对）"() {
         given: "40 条纯用户消息，切点 10 无工具对"
-        def transcript = (1..40).collect { i -> user("u" + i, i) }
+        def transcript = (1..40).collect { i -> user(String.valueOf(900000L + i), i) }
 
         when:
         int cut = compactor.adjustCutToAvoidDanglingPair(transcript, 10)
@@ -132,8 +156,8 @@ class CompactionTest extends Specification {
         def pointerValues = []
         def fullCompactor = new TranscriptCompactor(sessionManager, sessionMapper,
                 new SeededIdGenerator(), new FixedClock(), { event -> events << event } as org.springframework.context.ApplicationEventPublisher,
-                new DeterministicSummaryGenerator())
-        def transcript = (1..40).collect { i -> user("u" + i, i) }
+                new DeterministicSummaryGenerator(), noopJobWriter(), noopGroupState(), noopTopicLifecycle())
+        def transcript = (1..40).collect { i -> user(String.valueOf(900000L + i), i) }
         sessionManager.loadTranscript(_ as AgentSessionDO) >> transcript
         def session = new AgentSessionDO()
         session.setId(555L)
@@ -178,7 +202,7 @@ class CompactionTest extends Specification {
         def events = []
         def fullCompactor = new TranscriptCompactor(sessionManager, sessionMapper,
                 new SeededIdGenerator(), new FixedClock(), { event -> events << event } as org.springframework.context.ApplicationEventPublisher,
-                new DeterministicSummaryGenerator())
+                new DeterministicSummaryGenerator(), noopJobWriter(), noopGroupState(), noopTopicLifecycle())
         def session = new AgentSessionDO()
         session.setId(555L)
         session.setPlatform("qq")

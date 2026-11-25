@@ -17,6 +17,7 @@ class L1AssessmentTest extends Specification {
 
     def service = new L1BatchAssessor(mapper, assessor,
             { name -> "评估提示词" }, { p, b, g, limit -> [] }, { p, b, g -> "" },
+            { p, b, g -> "" }, { p, b, g, sender -> null }, { p, b, g -> "小趣" },
             clock, 3, 10)
 
     private TriggerEventDO pendingTrigger(long id, String dedupKey) {

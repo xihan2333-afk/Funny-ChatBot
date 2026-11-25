@@ -73,6 +73,27 @@ public class GenerationRunner {
     private final cn.edu.scut.chatbot.llm.slot.CredentialPool credentialPool;
     private final cn.edu.scut.chatbot.llm.slot.CostRecorder costRecorder;
 
+    /**
+     * 态度行渲染（T031 现注区注入）——setter 注入：构造器已 21 参不再扩（22 参构造器链禁令），
+     * 未装配时零注入、引擎主路径不受影响
+     */
+    private cn.edu.scut.chatbot.memory.profile.AttitudeNoteRenderer attitudeNoteRenderer;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setAttitudeNoteRenderer(cn.edu.scut.chatbot.memory.profile.AttitudeNoteRenderer renderer) {
+        this.attitudeNoteRenderer = renderer;
+    }
+
+    /**
+     * 情绪服务（T047 现注区情绪行）——setter 注入同上
+     */
+    private cn.edu.scut.chatbot.memory.emotion.EmotionService emotionService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setEmotionService(cn.edu.scut.chatbot.memory.emotion.EmotionService service) {
+        this.emotionService = service;
+    }
+
     public GenerationRunner(AgentLoop agentLoop,
                             StreamFn streamFn,
                             SessionManager sessionManager,
@@ -448,7 +469,8 @@ public class GenerationRunner {
     }
 
     /**
-     * transformContext 现注区注入（任务清单当前态——US4 就位后接真实清单）
+     * transformContext 现注区注入（任务清单当前态 + 态度行——逐人态度是
+     * 「这次跟谁说话」的函数每次都在变，落现注区尾部零缓存代价）
      */
     private AgentContext injectCurrentNotes(AgentContext original, AgentSessionDO session) {
         List<cn.edu.scut.chatbot.loop.message.AgentMessage> augmented =
@@ -457,8 +479,80 @@ public class GenerationRunner {
                 Long.toUnsignedString(idGenerator.nextId()), clock.instant(), 50, null,
                 "runtime-note", "[系统现注] 当前时间：" + clock.instant()
                 + "；进行中任务：" + runningTaskSummary(session)));
+        appendAttitudeNote(augmented, original, session);
+        appendEmotionNote(augmented, session);
         return new AgentContext(original.systemPrompt(), augmented,
                 original.tools(), original.modelConfig());
+    }
+
+    /**
+     * 情绪行现注（T047）：现注区尾部一行——「不播报」防每句话都喊"人家好开心"；
+     * 情绪不进 systemPrompt（每次可变进系统区即打断前缀缓存），每次生成前现注
+     */
+    private void appendEmotionNote(List<cn.edu.scut.chatbot.loop.message.AgentMessage> augmented,
+                                   AgentSessionDO session) {
+        if (emotionService == null) {
+            return;
+        }
+        try {
+            cn.edu.scut.chatbot.memory.emotion.EmotionState emotion = emotionService.read(
+                    new cn.edu.scut.chatbot.bootstrap.GroupKey(
+                            session.getPlatform(), session.getBotId(), session.getGroupId()));
+            String line = "[当前心情：" + emotion.label()
+                    + (emotion.cause() == null || emotion.cause().isBlank()
+                    ? "" : "，起因：" + emotion.cause())
+                    + "]，自然体现在语气与用词中，不要直接播报";
+            augmented.add(new SystemNote(
+                    Long.toUnsignedString(idGenerator.nextId()), clock.instant(), 50, null,
+                    "emotion-note", line));
+        } catch (Exception e) {
+            // 情绪行是增强注记——失败不影响生成
+            log.warn("情绪行现注失败（不影响生成） sessionId={}", session.getId(), e);
+        }
+    }
+
+    /**
+     * 态度行现注（T031）：本批触发器与锚定区涉及的发言人中态度显著者各一行，
+     * 整块以数据身份定界（群友相关数据归不可信定界注入）；无显著者零注入
+     */
+    private void appendAttitudeNote(List<cn.edu.scut.chatbot.loop.message.AgentMessage> augmented,
+                                    AgentContext original, AgentSessionDO session) {
+        if (attitudeNoteRenderer == null) {
+            return;   // 未装配（隔离测试上下文）零注入——引擎主路径不受影响
+        }
+        try {
+            List<String> lines = attitudeNoteRenderer.render(
+                    new cn.edu.scut.chatbot.bootstrap.GroupKey(
+                            session.getPlatform(), session.getBotId(), session.getGroupId()),
+                    recentSenderIds(original));
+            if (lines.isEmpty()) {
+                return;
+            }
+            augmented.add(new SystemNote(
+                    Long.toUnsignedString(idGenerator.nextId()), clock.instant(), 50, null,
+                    "attitude-note",
+                    cn.edu.scut.chatbot.security.delimit.DelimitHeaders.wrap(
+                            "本批发言人的态度参考（数据）：\n" + String.join("\n", lines))));
+        } catch (Exception e) {
+            // 态度行是增强注记——失败不影响生成
+            log.warn("态度行现注失败（不影响生成） sessionId={}", session.getId(), e);
+        }
+    }
+
+    /**
+     * 近期窗口的发言人（去重、最近优先——态度行只关心「这次跟谁说话」）
+     */
+    private List<String> recentSenderIds(AgentContext original) {
+        java.util.LinkedHashSet<String> senders = new java.util.LinkedHashSet<>();
+        List<cn.edu.scut.chatbot.loop.message.AgentMessage> messages = original.messages();
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            if (messages.get(i) instanceof cn.edu.scut.chatbot.loop.message.UserMessage user) {
+                if (user.senderUserId() != null) {
+                    senders.add(user.senderUserId());
+                }
+            }
+        }
+        return new ArrayList<>(senders);
     }
 
     private String runningTaskSummary(AgentSessionDO session) {

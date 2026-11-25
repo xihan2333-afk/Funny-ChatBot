@@ -169,4 +169,15 @@
           AND bot_id = #{botId}
           AND group_id = #{groupId}
     </select>
+
+    <select id="countInternalByTypeSince" resultType="long">
+        SELECT COUNT(*)
+        FROM trigger_event
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+          AND trigger_kind = 'internal'
+          AND event_type = #{eventType}
+          AND occurred_at &gt;= #{since}
+    </select>
 </mapper>
