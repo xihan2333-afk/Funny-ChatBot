@@ -54,6 +54,27 @@ public class EngineConfiguration {
     }
 
     /**
+     * 压缩摘要端口默认实现（确定性拼装）：ModelSummarizer（summarize 槽位）就位后退位
+     */
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean(
+            cn.edu.scut.chatbot.context.compaction.SummaryGenerator.class)
+    public cn.edu.scut.chatbot.context.compaction.SummaryGenerator deterministicSummaryGenerator() {
+        return new cn.edu.scut.chatbot.context.compaction.DeterministicSummaryGenerator();
+    }
+
+    /**
+     * 视觉描述端口默认桩（返回 null——投「描述未就绪」占位行）：
+     * GatewayVisionDescriber（vision_desc 槽位）就位后退位
+     */
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean(
+            cn.edu.scut.chatbot.context.media.VisionDescriber.class)
+    public cn.edu.scut.chatbot.context.media.VisionDescriber unavailableVisionDescriber() {
+        return mediaRef -> null;
+    }
+
+    /**
      * 会话管理器（推理权闸的交付优先提升阈值从运行层参数读——热变更生效）
      */
     @Bean

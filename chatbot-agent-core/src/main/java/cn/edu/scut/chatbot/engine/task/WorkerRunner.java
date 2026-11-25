@@ -30,6 +30,17 @@ public class WorkerRunner {
     private static final Logger log = LoggerFactory.getLogger(WorkerRunner.class);
 
     /**
+     * resolveCredentials 钩子实现：按 task_worker 槽位绑定的供应商取下一把可用 key——
+     * 全部不可用返回 null（无凭证按错误结果处理，Run 失败进 Effects 重试）
+     */
+    private String resolveCredentialFor(AgentContext context) {
+        if (context.modelConfig() == null || context.modelConfig().model() == null) {
+            return null;
+        }
+        return credentialPool.nextAvailable(context.modelConfig().model().providerCode());
+    }
+
+    /**
      * Worker 任务执行提示词（T086 PromptAssembler 的任务层就位前的占位——
      * 能力协议层无发言协议 + 任务执行提示词的形态骨架）
      */
@@ -51,6 +62,9 @@ public class WorkerRunner {
     private final cn.edu.scut.chatbot.tool.ToolCallGuard toolCallGuard;
     private final IdGenerator idGenerator;
     private final Clock clock;
+    private final cn.edu.scut.chatbot.llm.slot.SlotResolver slotResolver;
+    private final cn.edu.scut.chatbot.llm.slot.CredentialPool credentialPool;
+    private final cn.edu.scut.chatbot.llm.slot.CostRecorder costRecorder;
 
     public WorkerRunner(AgentLoop agentLoop,
                         StreamFn streamFn,
@@ -61,7 +75,10 @@ public class WorkerRunner {
                         cn.edu.scut.chatbot.context.ContextAwareProjector contextAwareProjector,
                         cn.edu.scut.chatbot.tool.ToolCallGuard toolCallGuard,
                         IdGenerator idGenerator,
-                        Clock clock) {
+                        Clock clock,
+                        cn.edu.scut.chatbot.llm.slot.SlotResolver slotResolver,
+                        cn.edu.scut.chatbot.llm.slot.CredentialPool credentialPool,
+                        cn.edu.scut.chatbot.llm.slot.CostRecorder costRecorder) {
         this.agentLoop = agentLoop;
         this.streamFn = streamFn;
         this.taskCoordinator = taskCoordinator;
@@ -72,6 +89,9 @@ public class WorkerRunner {
         this.toolCallGuard = toolCallGuard;
         this.idGenerator = idGenerator;
         this.clock = clock;
+        this.slotResolver = slotResolver;
+        this.credentialPool = credentialPool;
+        this.costRecorder = costRecorder;
     }
 
     /**
@@ -101,9 +121,19 @@ public class WorkerRunner {
                         + "代码执行、读取完整输出；注意：你没有 sendMessage——你不能对群里说话，"
                         + "结论由主会话代为交付）。多轮推进直到任务完成或达到"
                         + "预算上限；预算超限会被优雅收敛，届时尽量给出已完成的阶段性结论。");
+        cn.edu.scut.chatbot.loop.ModelConfig modelConfig;
+        try {
+            // Worker 形态绑 task_worker 槽位（推理模型取向——与 chat_main 分开配）
+            modelConfig = slotResolver.resolve(cn.edu.scut.chatbot.llm.slot.ModelCatalog.SLOT_TASK_WORKER);
+        } catch (cn.edu.scut.chatbot.llm.slot.ModelCatalog.SlotResolutionException e) {
+            log.error("task_worker 槽位解析失败（Worker 启动失败） errorCode=llm.config_missing traceId=n/a：{}",
+                    e.getMessage());
+            concludeFailed(taskId, "llm.config_missing:" + e.getMessage());
+            return;
+        }
         AgentContext context = new AgentContext(workerPrompt.isBlank() ? WORKER_PROMPT : workerPrompt, inputs,
                 workerTools.stream().map(AgentTool::descriptor).toList(),
-                GenerationParams.defaults());
+                modelConfig);
 
         AgentLoop.RunSpec spec = new AgentLoop.RunSpec(
                 runId, task.getPlatform(), task.getBotId(), task.getGroupId(),
@@ -112,11 +142,17 @@ public class WorkerRunner {
                         // Worker 形态现注：当前时间（任务快照已在启动上下文里，回执无群可投）
                         .transformContext(original -> new AgentContext(original.systemPrompt(),
                                 withCurrentTime(original.messages()), original.tools(),
-                                original.params()))
+                                original.modelConfig()))
+                        .resolveCredentials(() -> resolveCredentialFor(context))
                         .beforeToolCall(toolCallGuard.forRun(task.getPlatform(),
                                 task.getBotId(), task.getGroupId()))
                         .build(),
-                toolsByName(workerTools), streamFn, clock, idGenerator::nextId,
+                toolsByName(workerTools),
+                new cn.edu.scut.chatbot.engine.CostAwareStreamFn(streamFn, costRecorder,
+                        new cn.edu.scut.chatbot.llm.gateway.LlmCallMeta(task.getPlatform(),
+                                task.getBotId(), task.getGroupId(), runId, "worker",
+                                "run-" + runId, false)),
+                clock, idGenerator::nextId,
                 (completedRunId, turnMessages) -> {
                     // 中间过程只写任务执行记录（round 留痕），不进群聊会话历史
                     taskCoordinator.taskProgress(taskId, "轮次完成：" + turnMessages.size() + " 条消息");

@@ -1,12 +1,12 @@
 package cn.edu.scut.chatbot.tool.generic;
 
-import cn.edu.scut.chatbot.exception.ToolExecutionException;
 import cn.edu.scut.chatbot.bootstrap.CredentialCodec;
-import cn.edu.scut.chatbot.engine.intake.CredentialDO;
-import cn.edu.scut.chatbot.engine.intake.CredentialMapper;
 import cn.edu.scut.chatbot.engine.intake.HttpToolConfigDO;
 import cn.edu.scut.chatbot.exception.NonRetryableException;
+import cn.edu.scut.chatbot.exception.ToolExecutionException;
 import cn.edu.scut.chatbot.infrastructure.safefetcher.SafeFetcher;
+import cn.edu.scut.chatbot.llm.slot.CredentialDO;
+import cn.edu.scut.chatbot.llm.slot.CredentialMapper;
 import cn.edu.scut.chatbot.loop.AgentTool;
 import cn.edu.scut.chatbot.loop.AgentToolResult;
 import cn.edu.scut.chatbot.loop.ToolDescriptor;
@@ -166,7 +166,7 @@ public class HttpGenericTool {
         }
         try {
             CredentialDO credential = credentialMapper.selectById(credentialId);
-            return credential != null ? credentialCodec.decrypt(credential.getCipherText()) : null;
+            return credential != null ? credentialCodec.decryptFromBytes(credential.getKeyCipher()) : null;
         } catch (Exception e) {
             log.warn("凭证解密失败 credentialId={}", credentialId, e);
             return null;

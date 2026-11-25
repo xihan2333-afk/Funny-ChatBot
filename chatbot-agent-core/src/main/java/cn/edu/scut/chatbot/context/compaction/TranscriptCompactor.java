@@ -32,12 +32,6 @@ public class TranscriptCompactor {
     private static final Logger log = LoggerFactory.getLogger(TranscriptCompactor.class);
 
     /**
-     * 五段摘要的段标题（社交事实结构：谁在聊/聊了什么/结论与共识/情绪氛围/待办与悬念）
-     */
-    private static final String[] SUMMARY_SECTIONS =
-            {"讨论参与者", "主要话题", "结论与共识", "情绪氛围", "待办与悬念"};
-
-    /**
      * 单次压缩保留的近端条数（近端不进压缩区——保新鲜上下文逐字）
      */
     private static final int RECENT_KEEP = 30;
@@ -47,17 +41,20 @@ public class TranscriptCompactor {
     private final IdGenerator idGenerator;
     private final Clock clock;
     private final org.springframework.context.ApplicationEventPublisher eventPublisher;
+    private final SummaryGenerator summaryGenerator;
 
     public TranscriptCompactor(SessionManager sessionManager,
                                AgentSessionMapper sessionMapper,
                                IdGenerator idGenerator,
                                Clock clock,
-                               org.springframework.context.ApplicationEventPublisher eventPublisher) {
+                               org.springframework.context.ApplicationEventPublisher eventPublisher,
+                               SummaryGenerator summaryGenerator) {
         this.sessionManager = sessionManager;
         this.sessionMapper = sessionMapper;
         this.idGenerator = idGenerator;
         this.clock = clock;
         this.eventPublisher = eventPublisher;
+        this.summaryGenerator = summaryGenerator;
     }
 
     /**
@@ -95,7 +92,7 @@ public class TranscriptCompactor {
             }
         }
 
-        String summaryText = buildFiveSectionSummary(oldSummaryText, freshEntries);
+        String summaryText = summaryGenerator.generate(oldSummaryText, freshEntries);
         SummaryEntry newSummary = new SummaryEntry(
                 Long.toUnsignedString(idGenerator.nextId()), clock.instant(), 50,
                 "compaction-" + session.getId(), summaryText,
@@ -164,53 +161,4 @@ public class TranscriptCompactor {
         return Math.min(adjusted, transcript.size());
     }
 
-    /**
-     * 五段摘要拼装（确定性模板——真实现归 2.3 小模型，本 feature 保证机制与结构）
-     */
-    private String buildFiveSectionSummary(String oldSummaryText, List<AgentMessage> entries) {
-        StringBuilder builder = new StringBuilder();
-        if (oldSummaryText != null) {
-            builder.append("【早前摘要并入】").append(oldSummaryText).append("\n\n");
-        }
-        for (int i = 0; i < SUMMARY_SECTIONS.length; i++) {
-            builder.append(SUMMARY_SECTIONS[i]).append("：");
-            switch (i) {
-                case 0 -> builder.append(participantsOf(entries));
-                case 1 -> builder.append(topicsOf(entries));
-                case 2 -> builder.append("（模型摘要第一版：确定性拼装，结论提取归 2.3 小模型）");
-                case 3 -> builder.append("（情绪氛围提取归 2.3 小模型）");
-                case 4 -> builder.append("（待办提取归 2.3 小模型）");
-            }
-            builder.append('\n');
-        }
-        return builder.toString().trim();
-    }
-
-    private String participantsOf(List<AgentMessage> entries) {
-        List<String> speakers = new ArrayList<>();
-        for (AgentMessage message : entries) {
-            if (message instanceof cn.edu.scut.chatbot.loop.message.UserMessage user
-                    && !speakers.contains(user.senderUserId())) {
-                speakers.add(user.senderUserId());
-            }
-        }
-        return speakers.isEmpty() ? "（无发言者）" : String.join("、", speakers);
-    }
-
-    private String topicsOf(List<AgentMessage> entries) {
-        // 话题提取：取 user 消息文本前 30 字（确定性拼装——语义聚类归 2.3 小模型）
-        List<String> samples = new ArrayList<>();
-        for (AgentMessage message : entries) {
-            if (message instanceof cn.edu.scut.chatbot.loop.message.UserMessage user
-                    && user.parts() != null && !user.parts().isEmpty()
-                    && user.parts().get(0) instanceof cn.edu.scut.chatbot.contract.message.TextPart textPart) {
-                String text = textPart.text();
-                samples.add(text.length() > 30 ? text.substring(0, 30) : text);
-            }
-            if (samples.size() >= 5) {
-                break;
-            }
-        }
-        return samples.isEmpty() ? "（无文本消息）" : String.join("；", samples);
-    }
 }

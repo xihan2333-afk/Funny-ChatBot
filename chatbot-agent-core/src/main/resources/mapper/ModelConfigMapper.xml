@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.llm.slot.ModelConfigMapper">
+
+    <select id="selectAll" resultType="cn.edu.scut.chatbot.llm.slot.ModelConfigDO">
+        SELECT id,
+               provider_code AS providerCode,
+               model_id      AS modelId,
+               display_name  AS displayName,
+               capability,
+               price,
+               enabled
+        FROM model_config
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO model_config (provider_code, model_id, display_name, capability, price, enabled)
+        VALUES (#{providerCode}, #{modelId}, #{displayName}, #{capability}, #{price},
+                COALESCE(#{enabled}, 1))
+    </insert>
+
+</mapper>

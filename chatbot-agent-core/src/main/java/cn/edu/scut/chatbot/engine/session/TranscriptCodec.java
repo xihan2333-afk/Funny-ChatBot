@@ -1,28 +1,8 @@
 package cn.edu.scut.chatbot.engine.session;
 
 import cn.edu.scut.chatbot.bootstrap.JsonMappers;
-import cn.edu.scut.chatbot.contract.message.AtPart;
-import cn.edu.scut.chatbot.contract.message.AudioPart;
-import cn.edu.scut.chatbot.contract.message.FacePart;
-import cn.edu.scut.chatbot.contract.message.ImagePart;
-import cn.edu.scut.chatbot.contract.message.MessagePart;
-import cn.edu.scut.chatbot.contract.message.QuotePart;
-import cn.edu.scut.chatbot.contract.message.TextPart;
-import cn.edu.scut.chatbot.contract.message.UnsupportedPart;
-import cn.edu.scut.chatbot.contract.message.VideoPart;
-import cn.edu.scut.chatbot.engine.intake.TriggerEventDO;
-import cn.edu.scut.chatbot.loop.message.AgentMessage;
-import cn.edu.scut.chatbot.loop.message.AgentMessageKind;
-import cn.edu.scut.chatbot.loop.message.AssistantMessage;
-import cn.edu.scut.chatbot.loop.message.DeliveryReportEntry;
-import cn.edu.scut.chatbot.loop.message.EventEntry;
-import cn.edu.scut.chatbot.loop.message.ImageContent;
-import cn.edu.scut.chatbot.loop.message.LinkCardEntry;
-import cn.edu.scut.chatbot.loop.message.SummaryEntry;
-import cn.edu.scut.chatbot.loop.message.SystemNote;
-import cn.edu.scut.chatbot.loop.message.TextContent;
-import cn.edu.scut.chatbot.loop.message.ToolResultMessage;
-import cn.edu.scut.chatbot.loop.message.UserMessage;
+import cn.edu.scut.chatbot.contract.message.*;
+import cn.edu.scut.chatbot.loop.message.*;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
@@ -100,6 +80,7 @@ public class TranscriptCodec {
                                     usageNode.path("inputTokens").asInt(0),
                                     usageNode.path("outputTokens").asInt(0),
                                     usageNode.path("reasoningTokens").asInt(0),
+                                    usageNode.path("cachedTokens").asInt(0),
                                     usageNode.path("totalTokens").asInt(0)));
                 }
                 case TOOL_RESULT -> {

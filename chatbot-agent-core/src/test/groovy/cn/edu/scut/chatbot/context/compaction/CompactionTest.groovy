@@ -17,7 +17,8 @@ import java.time.Instant
 
 class CompactionTest extends Specification {
 
-    def compactor = new TranscriptCompactor(null, null, null, null, { event -> })
+    def compactor = new TranscriptCompactor(null, null, null, null, { event -> },
+            new DeterministicSummaryGenerator())
 
     private UserMessage user(String id, int offset) {
         return new UserMessage(id, Instant.ofEpochSecond(1775000000 + offset), 50, null, "10086",
@@ -130,7 +131,8 @@ class CompactionTest extends Specification {
         def events = []
         def pointerValues = []
         def fullCompactor = new TranscriptCompactor(sessionManager, sessionMapper,
-                new SeededIdGenerator(), new FixedClock(), { event -> events << event } as org.springframework.context.ApplicationEventPublisher)
+                new SeededIdGenerator(), new FixedClock(), { event -> events << event } as org.springframework.context.ApplicationEventPublisher,
+                new DeterministicSummaryGenerator())
         def transcript = (1..40).collect { i -> user("u" + i, i) }
         sessionManager.loadTranscript(_ as AgentSessionDO) >> transcript
         def session = new AgentSessionDO()
@@ -175,7 +177,8 @@ class CompactionTest extends Specification {
         def sessionMapper = Mock(AgentSessionMapper)
         def events = []
         def fullCompactor = new TranscriptCompactor(sessionManager, sessionMapper,
-                new SeededIdGenerator(), new FixedClock(), { event -> events << event } as org.springframework.context.ApplicationEventPublisher)
+                new SeededIdGenerator(), new FixedClock(), { event -> events << event } as org.springframework.context.ApplicationEventPublisher,
+                new DeterministicSummaryGenerator())
         def session = new AgentSessionDO()
         session.setId(555L)
         session.setPlatform("qq")

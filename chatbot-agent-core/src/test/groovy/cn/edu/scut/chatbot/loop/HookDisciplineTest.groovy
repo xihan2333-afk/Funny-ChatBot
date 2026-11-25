@@ -7,7 +7,6 @@ import cn.edu.scut.chatbot.fixtures.ScriptedStreamFn
 import cn.edu.scut.chatbot.fixtures.StubTool
 import cn.edu.scut.chatbot.loop.hooks.LoopHooks
 import cn.edu.scut.chatbot.loop.message.AssistantMessage
-import cn.edu.scut.chatbot.loop.message.ContentPart
 import cn.edu.scut.chatbot.loop.message.ToolResultMessage
 import cn.edu.scut.chatbot.loop.transcript.TranscriptProjector
 import spock.lang.Specification
@@ -26,7 +25,7 @@ class HookDisciplineTest extends Specification {
         def history = [new cn.edu.scut.chatbot.loop.message.UserMessage(
                 "hist-1", clock.instant(), 50, null, "10086",
                 List.of(new cn.edu.scut.chatbot.contract.message.TextPart("text", "你好")))]
-        def context = new AgentContext("sys", history, List.of(), GenerationParams.defaults())
+        def context = new AgentContext("sys", history, List.of(), new ModelConfig(null, GenerationParams.defaults()))
         streamFn.addScript(ScriptedStreamFn.naturalText("回复"))
         def spec = new AgentLoop.RunSpec(9002L, "qq", "10000", "80001", null, null,
                 context, RunConfig.turnDefaults(),
@@ -48,7 +47,7 @@ class HookDisciplineTest extends Specification {
         def history = [new cn.edu.scut.chatbot.loop.message.UserMessage(
                 "hist-1", clock.instant(), 50, null, "10086",
                 List.of(new cn.edu.scut.chatbot.contract.message.TextPart("text", "历史")))]
-        def context = new AgentContext("sys", history, List.of(), GenerationParams.defaults())
+        def context = new AgentContext("sys", history, List.of(), new ModelConfig(null, GenerationParams.defaults()))
         def receivedProjections = []
         def trackingProjector = { messages ->
             def projected = new TranscriptProjector().convert(messages)
@@ -79,7 +78,7 @@ class HookDisciplineTest extends Specification {
         def history = [new cn.edu.scut.chatbot.loop.message.UserMessage(
                 "hist-1", clock.instant(), 50, null, "10086",
                 List.of(new cn.edu.scut.chatbot.contract.message.TextPart("text", "历史")))]
-        def context = new AgentContext("sys", history, List.of(), GenerationParams.defaults())
+        def context = new AgentContext("sys", history, List.of(), new ModelConfig(null, GenerationParams.defaults()))
         def persistedBatches = []
         streamFn.addScript(ScriptedStreamFn.naturalText("回复"))
         def spec = new AgentLoop.RunSpec(9004L, "qq", "10000", "80001", null, null,
@@ -90,7 +89,7 @@ class HookDisciplineTest extends Specification {
                             new AgentContext(original.systemPrompt(),
                                     original.messages() + [new cn.edu.scut.chatbot.loop.message.SystemNote(
                                             "note-1", clock.instant(), 50, null, "任务清单", "[现注] 进行中任务：无")],
-                                    original.tools(), original.params())
+                                    original.tools(), original.modelConfig())
                         })
                         .build(),
                 [:], streamFn, clock, { -> idSeq.incrementAndGet() },

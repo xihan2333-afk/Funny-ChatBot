@@ -83,7 +83,7 @@ class RunConfigScenarioTest {
         });
 
         AgentContext startContext = new AgentContext("sys", List.copyOf(history), List.of(),
-                GenerationParams.defaults());
+                new ModelConfig(null, GenerationParams.defaults()));
         AgentLoop.RunSpec spec = new AgentLoop.RunSpec(
                 9009L, "qq", "10000", "80001", null, null,
                 startContext, RunConfig.turnDefaults(),

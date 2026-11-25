@@ -1,0 +1,8 @@
+data: {"id":"chatcmpl-openai-004","created":1730000000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"role":"assistant","content":"好的"}}]}
+
+data: {"id":"chatcmpl-openai-004","created":1730000000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{"content":"，没问题。"}}]}
+
+data: {"id":"chatcmpl-openai-004","created":1730000000,"model":"gpt-4o-mini","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":90,"completion_tokens":8,"prompt_tokens_details":{"cached_tokens":0},"total_tokens":98}}
+
+data: [DONE]
+
