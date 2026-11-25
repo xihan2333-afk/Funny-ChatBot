@@ -124,9 +124,10 @@ class PassiveResponseScenarioLlmIT extends AbstractIntegrationTest {
         groupMapper.upsertDiscovered("qq", "10000", TEST_GROUP, null);
         groupMapper.updateInService("qq", "10000", TEST_GROUP, 1);
         groupMapper.updateLifecycle("qq", "10000", TEST_GROUP, GroupDO.LIFECYCLE_ACTIVE);
-        redisTemplate.delete(IN_STREAM_KEY);
-        redisTemplate.delete(OUT_STREAM_KEY);
+        // 清流用 XTRIM 0 只清消息保消费组（DEL 会连组一起删，消费者组只在启动时建一次）
         RedisStreamTestKit kit = new RedisStreamTestKit(redisTemplate);
+        kit.clearStream(IN_STREAM_KEY);
+        kit.clearStream(OUT_STREAM_KEY);
 
         // 假上游两轮剧本：第一轮 toolCall(sendMessage)、第二轮自然结束（与 002 场景 A 同构）
         upstream.addScript("/chat/completions", List.of(new ScriptedHttpUpstream.SseChunks(List.of(
@@ -143,10 +144,15 @@ class PassiveResponseScenarioLlmIT extends AbstractIntegrationTest {
         kit.addToInbound(IN_STREAM_KEY,
                 EnvelopeFactory.groupMessage("qq", "10000", TEST_GROUP, "10086", "帮忙看看这个", null, true));
 
-        // 2. Turn 到终态
+        // 2. Turn 推进到可结算态（第一轮 sendMessage 出事件、第二轮自然结束后置
+        // SETTLING——回执回流前停在此；终态 SETTLED 由第 6 步回执驱动。SETTLING 属
+        // selectNonTerminalAll 的非终态口径，不能等"非终态清空"）
         await().atMost(java.time.Duration.ofSeconds(30)).until(() ->
-                turnMapper.selectNonTerminalAll().isEmpty());
-        List<TurnDO> all = turnMapper.selectNonTerminalAll();
+                turnMapper.selectNonTerminalAll().stream().anyMatch(t ->
+                        TEST_GROUP.equals(t.getGroupId())
+                                && ("SETTLING".equals(t.getStatus())
+                                || "SETTLED".equals(t.getStatus())
+                                || "SILENT".equals(t.getStatus()))));
         TurnDO turn = jdbcTemplate.query(
                 "SELECT id, status FROM turn WHERE group_id = ? ORDER BY id DESC LIMIT 1",
                 (rs, rowNum) -> {

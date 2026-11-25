@@ -9,6 +9,7 @@ import cn.edu.scut.chatbot.loop.AgentToolResult;
 import cn.edu.scut.chatbot.loop.ToolDescriptor;
 import cn.edu.scut.chatbot.loop.ToolInvocation;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.net.http.HttpClient;
@@ -34,6 +35,7 @@ public class FetchWebTool implements AgentTool {
     private final SystemParamService systemParamService;
     private final cn.edu.scut.chatbot.llm.gateway.ModelGateway modelGateway;
 
+    @Autowired
     public FetchWebTool(SystemParamService systemParamService,
                         cn.edu.scut.chatbot.llm.gateway.ModelGateway modelGateway) {
         this(systemParamService, modelGateway, buildSafeFetcher(systemParamService));

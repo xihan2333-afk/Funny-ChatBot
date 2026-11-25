@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.test.context.TestPropertySource;
 
 import java.util.List;
 
@@ -27,7 +28,17 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * 完整性检查两类缺项逐类触发。
  */
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
+@TestPropertySource(properties = "chatbot.credential.key="
+        + "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=")
 class SlotAssemblyIT extends AbstractIntegrationTest {
+
+    /**
+     * chat_main 槽位 gen_params 夹具（seed 与用例还原共用同一份——还原行缺项会让
+     * 后续用例读到残缺快照）
+     */
+    private static final String CHAT_MAIN_GEN_PARAMS =
+            "{\"temperature\":0.6,\"maxOutputTokens\":2048,"
+                    + "\"passthrough\":{\"thinking\":{\"type\":\"disabled\"}}}";
 
     @Autowired
     private ProviderConfigMapper providerMapper;
@@ -74,9 +85,7 @@ class SlotAssemblyIT extends AbstractIntegrationTest {
         modelMapper.insert(modelRow("google", "gemini-2.0-flash",
                 "{\"vision\":true,\"toolUse\":true,\"contextWindow\":1000000,\"maxOutputTokens\":8192}",
                 "{\"input\":0.7,\"output\":2.5,\"cached\":0.2}"));
-        slotMapper.insert(slotRow("chat_main", "zai", "glm-4.6",
-                "{\"temperature\":0.6,\"maxOutputTokens\":2048,"
-                        + "\"passthrough\":{\"thinking\":{\"type\":\"disabled\"}}}"));
+        slotMapper.insert(slotRow("chat_main", "zai", "glm-4.6", CHAT_MAIN_GEN_PARAMS));
         credentialMapper.insertCredential(credentialRow("zai", "sk-live-zai-key-0001"));
 
         catalog.refresh();
@@ -136,8 +145,7 @@ class SlotAssemblyIT extends AbstractIntegrationTest {
                 .hasMessageContaining("槽位未绑定");
 
         // 还原夹具
-        slotMapper.insert(slotRow("chat_main", "zai", "glm-4.6",
-                "{\"temperature\":0.6,\"maxOutputTokens\":2048}"));
+        slotMapper.insert(slotRow("chat_main", "zai", "glm-4.6", CHAT_MAIN_GEN_PARAMS));
         eventPublisher.publishEvent(new ToolRegistry.ConfigRefreshEvent("IT 还原"));
     }
 

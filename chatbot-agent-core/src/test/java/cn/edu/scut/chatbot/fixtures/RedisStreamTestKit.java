@@ -1,16 +1,14 @@
 package cn.edu.scut.chatbot.fixtures;
 
 import cn.edu.scut.chatbot.contract.envelope.EventEnvelope;
+import org.springframework.data.domain.Range;
 import org.springframework.data.redis.connection.RedisConnection;
 import org.springframework.data.redis.connection.RedisStreamCommands;
 import org.springframework.data.redis.connection.stream.MapRecord;
 import org.springframework.data.redis.connection.stream.StreamRecords;
-import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.domain.Range;
 
 import java.nio.charset.StandardCharsets;
-import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 
@@ -68,8 +66,16 @@ public final class RedisStreamTestKit {
         if (records == null) {
             return List.of();
         }
-        return records.stream().map(record -> new String(
-                record.getValue().get(ENVELOPE_FIELD), StandardCharsets.UTF_8)).toList();
+        return records.stream().map(record -> {
+            // byte[] 作 Map key 是引用比较，不能直接 get(ENVELOPE_FIELD)——按内容逐项比对
+            // （与 RedisStreamGateway 读流同款读法）
+            for (Map.Entry<byte[], byte[]> entry : record.getValue().entrySet()) {
+                if (java.util.Arrays.equals(entry.getKey(), ENVELOPE_FIELD) && entry.getValue() != null) {
+                    return new String(entry.getValue(), StandardCharsets.UTF_8);
+                }
+            }
+            return "";
+        }).toList();
     }
 
     /**

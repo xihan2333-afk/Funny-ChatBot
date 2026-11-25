@@ -1,7 +1,5 @@
 package cn.edu.scut.chatbot.llm;
 
-import cn.edu.scut.chatbot.llm.gateway.GatewayStreamFn;
-import cn.edu.scut.chatbot.llm.gateway.ModelGateway;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
@@ -44,12 +42,4 @@ public class LlmConfiguration {
         };
     }
 
-    /**
-     * 网关统一入口（StreamFn 主通道经 GatewayStreamFn @Component 装配；本 Bean 把
-     * 同一实例暴露为 ModelGateway 供 callOnce / 能力接口直连调用）
-     */
-    @Bean
-    public ModelGateway modelGateway(GatewayStreamFn gatewayStreamFn) {
-        return gatewayStreamFn;
-    }
 }
