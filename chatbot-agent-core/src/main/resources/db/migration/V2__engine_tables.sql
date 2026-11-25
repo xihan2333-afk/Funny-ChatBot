@@ -190,7 +190,7 @@ CREATE TABLE outbox
     turn_id       BIGINT UNSIGNED NULL,
     task_id       BIGINT UNSIGNED NULL,
     trace_context VARCHAR(128) NULL COMMENT 'W3C traceparent',
-    status        VARCHAR(8)  NOT NULL DEFAULT 'pending' COMMENT 'pending / settled / failed',
+    status VARCHAR(16) NOT NULL DEFAULT 'pending' COMMENT 'pending / dispatching（投递占用）/ settled / failed',
     report        JSON NULL COMMENT '回执内容（平台消息 ID、失败原因分类）',
     error_code    VARCHAR(64) NULL,
     settled_at    DATETIME(3) NULL,

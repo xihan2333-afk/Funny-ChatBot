@@ -37,17 +37,32 @@ public class ContextAwareProjector implements LoopHooks.ConvertToLlmHook {
     }
 
     /**
-     * 无档位形态的投影（默认 active 档）
+     * 无档位形态的投影（默认 active 档、按有视觉能力处理）
      */
     @Override
     public List<LlmMessage> convert(List<AgentMessage> workingTranscript) {
-        return convert(workingTranscript, LEVEL_ACTIVE);
+        return convert(workingTranscript, LEVEL_ACTIVE, true);
     }
 
     /**
      * 按会话窗口档投影（Run 组装时以闭包绑定该群的档位——Run 内档位固定，快照纪律）
      */
     public List<LlmMessage> convert(List<AgentMessage> workingTranscript, String windowLevel) {
+        return convert(workingTranscript, windowLevel, true);
+    }
+
+    /**
+     * 按会话窗口档与主模型视觉能力投影。
+     *
+     * <p>多模态投影规则（data-model 第 4 节三条）：锚定区内带 storedRef 的原图装进
+     * LlmMessage.images（翻译器装载为方言形态）、滚出锚定区维持描述行文本；
+     * 主模型 vision=false 则窗口内一律描述行、不装任何 images（即使锚定区内）——
+     * 装载与投影各管一段，翻译器无降级逻辑。
+     *
+     * @param visionCapable 主模型是否具备视觉能力（AgentContext.modelConfig 的能力声明）
+     */
+    public List<LlmMessage> convert(List<AgentMessage> workingTranscript, String windowLevel,
+                                    boolean visionCapable) {
         // 窗口组装（筛选操作：evicted 条目不投；锚定区与摘要区在窗）
         WindowAssembler.WindowPlan plan = windowAssembler.assemble(
                 workingTranscript, latestSummaryOf(workingTranscript), windowLevel);
@@ -62,13 +77,13 @@ public class ContextAwareProjector implements LoopHooks.ConvertToLlmHook {
         for (AgentMessage message : plan.summaryZone()) {
             projected.add(translate(message));
         }
-        // 对话区（锚定区内图片投原图形态、锚定区外降级为描述行；
+        // 对话区（锚定区内图片装原图、锚定区外降级为描述行；vision=false 一律描述行；
         // 返回 null 的条目不投——如成功回执：发送成功是常态不需要提醒）
         List<AgentMessage> conversation = plan.conversationZone();
         int anchorStart = Math.max(0, conversation.size() - WindowAssembler.ANCHOR_SIZE);
         for (int i = 0; i < conversation.size(); i++) {
             boolean inAnchorZone = i >= anchorStart;
-            LlmMessage line = translateOrNull(conversation.get(i), inAnchorZone);
+            LlmMessage line = translateOrNull(conversation.get(i), inAnchorZone, visionCapable);
             if (line != null) {
                 projected.add(line);
             }
@@ -94,7 +109,7 @@ public class ContextAwareProjector implements LoopHooks.ConvertToLlmHook {
      * 变形操作默认形态（无锚定区信息——非对话区条目；不投条目按「成功回执」处理返回 null）
      */
     private LlmMessage translate(AgentMessage message) {
-        return translateOrNull(message, true);
+        return translateOrNull(message, true, true);
     }
 
     /**
@@ -103,9 +118,11 @@ public class ContextAwareProjector implements LoopHooks.ConvertToLlmHook {
      * 返回 null 表示该条目本次不投（默认形态：DeliveryReportEntry 成功——发送成功是常态；
      * 失败投一行失败提示）
      *
-     * @param inAnchorZone 对话区尾部锚定区内（图片投原图形态；区外降级为描述行）
+     * @param inAnchorZone  对话区尾部锚定区内（图片装原图；区外降级为描述行）
+     * @param visionCapable 主模型有视觉能力（false 则窗口内一律描述行零 images）
      */
-    private LlmMessage translateOrNull(AgentMessage message, boolean inAnchorZone) {
+    private LlmMessage translateOrNull(AgentMessage message, boolean inAnchorZone,
+                                       boolean visionCapable) {
         if (message instanceof SummaryEntry) {
             return new TranscriptProjector().convert(List.of(message)).get(0);
         }
@@ -116,18 +133,20 @@ public class ContextAwareProjector implements LoopHooks.ConvertToLlmHook {
             return new TranscriptProjector().convert(List.of(message)).get(0);
         }
         if (message instanceof cn.edu.scut.chatbot.loop.message.UserMessage user) {
-            return LlmMessage.user(renderUserWithMedia(user, inAnchorZone));
+            return userWithMedia(user, inAnchorZone, visionCapable);
         }
         return new TranscriptProjector().convert(List.of(message)).get(0);
     }
 
     /**
-     * 群友消息的媒体形态投影：锚定区内图片/表情包按 MediaProjector 投形态，
-     * 区外图片降级为描述行（降级只随压缩发生的窗口视图侧表现）
+     * 群友消息的媒体形态投影：锚定区内且模型有视觉能力时带 storedRef 的原图装进
+     * images（翻译器装载为方言形态）；其余形态走描述行/占位（vision=false 一律描述行）。
+     * 装载与投影各管一段——投影给什么翻译器装什么。
      */
-    private String renderUserWithMedia(cn.edu.scut.chatbot.loop.message.UserMessage user,
-                                       boolean inAnchorZone) {
+    private LlmMessage userWithMedia(cn.edu.scut.chatbot.loop.message.UserMessage user,
+                                     boolean inAnchorZone, boolean visionCapable) {
         StringBuilder builder = new StringBuilder();
+        List<cn.edu.scut.chatbot.loop.message.ImageContent> images = new ArrayList<>();
         for (var part : user.parts()) {
             if (builder.length() > 0) {
                 builder.append(' ');
@@ -138,10 +157,17 @@ public class ContextAwareProjector implements LoopHooks.ConvertToLlmHook {
                 builder.append(cn.edu.scut.chatbot.contract.message.AtPart.TARGET_ALL
                         .equals(atPart.targetUserId()) ? "@全体成员" : "@" + atPart.targetUserId());
             } else if (part instanceof cn.edu.scut.chatbot.contract.message.ImagePart imagePart) {
-                String degraded = mediaProjector.projectImage(inAnchorZone,
-                        imagePart.storedRef() != null ? imagePart.storedRef()
-                                : imagePart.originalUrl(), null);
-                builder.append(degraded != null ? degraded : "[图片]");
+                String mediaRef = imagePart.storedRef() != null ? imagePart.storedRef()
+                        : imagePart.originalUrl();
+                if (visionCapable && inAnchorZone && imagePart.storedRef() != null) {
+                    // 锚定区内原图装载（滚出锚定区维持描述行——降级只随压缩发生的窗口视图侧表现）
+                    images.add(new cn.edu.scut.chatbot.loop.message.ImageContent(imagePart.storedRef()));
+                    builder.append("[图片]");
+                } else {
+                    String degraded = mediaProjector.projectImage(
+                            visionCapable && inAnchorZone, mediaRef, null);
+                    builder.append(degraded != null ? degraded : "[图片]");
+                }
             } else if (part instanceof cn.edu.scut.chatbot.contract.message.FacePart) {
                 builder.append("[表情]");
             } else if (part instanceof cn.edu.scut.chatbot.contract.message.QuotePart quotePart) {
@@ -154,6 +180,7 @@ public class ContextAwareProjector implements LoopHooks.ConvertToLlmHook {
                 builder.append("[未支持的消息段]");
             }
         }
-        return user.senderUserId() + " 说：" + builder;
+        return new LlmMessage(LlmMessage.ROLE_USER, user.senderUserId() + " 说：" + builder,
+                List.of(), null, false, images);
     }
 }

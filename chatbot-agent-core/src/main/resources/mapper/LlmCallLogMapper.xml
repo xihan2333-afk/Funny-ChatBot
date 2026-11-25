@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.llm.slot.LlmCallLogMapper">
+
+    <insert id="insertBatch">
+        INSERT INTO llm_call_log
+        (platform, bot_id, group_id, run_kind, run_id, slot_code, provider_code, model_id,
+        input_tokens, output_tokens, cached_tokens, cost_amount, ttft_ms, total_ms,
+        stop_reason, error_code, trace_id, is_replay)
+        VALUES
+        <foreach collection="list" item="row" separator=",">
+            (#{row.platform}, #{row.botId}, #{row.groupId}, #{row.runKind}, #{row.runId},
+            #{row.slotCode}, #{row.providerCode}, #{row.modelId},
+            #{row.inputTokens}, #{row.outputTokens}, #{row.cachedTokens}, #{row.costAmount},
+            #{row.ttftMs}, #{row.totalMs}, #{row.stopReason}, #{row.errorCode}, #{row.traceId},
+            #{row.replay})
+        </foreach>
+    </insert>
+
+    <select id="selectLatest" resultType="cn.edu.scut.chatbot.llm.slot.LlmCallLogDO">
+        SELECT id,
+               platform,
+               bot_id        AS botId,
+               group_id      AS groupId,
+               run_kind      AS runKind,
+               run_id        AS runId,
+               slot_code     AS slotCode,
+               provider_code AS providerCode,
+               model_id      AS modelId,
+               input_tokens  AS inputTokens,
+               output_tokens AS outputTokens,
+               cached_tokens AS cachedTokens,
+               cost_amount   AS costAmount,
+               ttft_ms       AS ttftMs,
+               total_ms      AS totalMs,
+               stop_reason   AS stopReason,
+               error_code    AS errorCode,
+               trace_id      AS traceId,
+               is_replay     AS replay,
+               created_at    AS createdAt
+        FROM llm_call_log
+        ORDER BY id DESC
+            LIMIT #{limit}
+    </select>
+
+</mapper>

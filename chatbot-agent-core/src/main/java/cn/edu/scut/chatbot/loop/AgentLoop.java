@@ -117,12 +117,13 @@ public class AgentLoop {
             // transformContext 的输入是工作转录当前态的副本（含上轮模型消息与工具结果）——
             // 钩子增删的现注条目（任务清单/当前时间）随副本直达投影，不落转录（每次调用重取）
             AgentContext turnView = new AgentContext(context.systemPrompt(),
-                    List.copyOf(workingTranscript), context.tools(), context.params());
+                    List.copyOf(workingTranscript), context.tools(), context.modelConfig());
             context = safeTransformContext(spec, turnView);
             List<LlmMessage> llmMessages = safeConvertToLlm(spec, context.messages());
             String credential = safeResolveCredentials(spec);
 
             ModelRequest request = new ModelRequest(
+                    context.modelConfig() != null ? context.modelConfig().model() : null,
                     llmMessages, context.systemPrompt(),
                     context.tools().stream().map(this::declareTool).toList(),
                     context.params(), credential);

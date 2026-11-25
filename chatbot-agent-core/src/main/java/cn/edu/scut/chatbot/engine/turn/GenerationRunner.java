@@ -69,6 +69,9 @@ public class GenerationRunner {
     private final IdGenerator idGenerator;
     private final Clock clock;
     private final BoundedEventListener eventListener;
+    private final cn.edu.scut.chatbot.llm.slot.SlotResolver slotResolver;
+    private final cn.edu.scut.chatbot.llm.slot.CredentialPool credentialPool;
+    private final cn.edu.scut.chatbot.llm.slot.CostRecorder costRecorder;
 
     public GenerationRunner(AgentLoop agentLoop,
                             StreamFn streamFn,
@@ -86,7 +89,10 @@ public class GenerationRunner {
                             cn.edu.scut.chatbot.context.window.WindowAssembler windowAssembler,
                             cn.edu.scut.chatbot.tool.ToolCallGuard toolCallGuard,
                             IdGenerator idGenerator,
-                            Clock clock) {
+                            Clock clock,
+                            cn.edu.scut.chatbot.llm.slot.SlotResolver slotResolver,
+                            cn.edu.scut.chatbot.llm.slot.CredentialPool credentialPool,
+                            cn.edu.scut.chatbot.llm.slot.CostRecorder costRecorder) {
         this.agentLoop = agentLoop;
         this.streamFn = streamFn;
         this.sessionManager = sessionManager;
@@ -104,7 +110,48 @@ public class GenerationRunner {
         this.toolCallGuard = toolCallGuard;
         this.idGenerator = idGenerator;
         this.clock = clock;
+        this.slotResolver = slotResolver;
+        this.credentialPool = credentialPool;
+        this.costRecorder = costRecorder;
         this.eventListener = new BoundedEventListener();
+    }
+
+    /**
+     * 槽位装配（Turn/lightTask 形态用 chat_main）：解析失败走既有失败路径
+     * （llm.config_missing）——调用方各自 catch 处置，不发明新机制
+     */
+    private cn.edu.scut.chatbot.loop.ModelConfig chatMainConfig() {
+        return slotResolver.resolve(cn.edu.scut.chatbot.llm.slot.ModelCatalog.SLOT_CHAT_MAIN);
+    }
+
+    /**
+     * 落账 run_kind（turn / lightTask / worker——llm_call_log 按场景钻取口径）
+     */
+    private static String runKindOf(RunConfig config) {
+        if (config.form() == RunConfig.ExecutionForm.LIGHT_TASK) {
+            return "lightTask";
+        }
+        return "turn";
+    }
+
+    /**
+     * 主模型视觉能力判定（多模态投影规则：vision=false 窗口内一律描述行零 images）
+     */
+    private boolean visionCapableOf(AgentContext context) {
+        return context.modelConfig() != null && context.modelConfig().model() != null
+                && context.modelConfig().model().capabilities() != null
+                && context.modelConfig().model().capabilities().vision();
+    }
+
+    /**
+     * resolveCredentials 钩子实现：按槽位绑定的供应商取下一把可用 key——
+     * 全部不可用返回 null（钩子既定契约：无凭证按错误结果处理，Run 失败进 Effects 重试）
+     */
+    private String resolveCredentialFor(AgentContext context) {
+        if (context.modelConfig() == null || context.modelConfig().model() == null) {
+            return null;
+        }
+        return credentialPool.nextAvailable(context.modelConfig().model().providerCode());
     }
 
     /**
@@ -128,9 +175,18 @@ public class GenerationRunner {
                     sessionManager.loadTranscript(session);
             List<AgentTool> turnTools = toolsetAssembler.assemble(RunConfig.ExecutionForm.TURN,
                     turn.getPlatform(), turn.getBotId(), turn.getGroupId());
+            cn.edu.scut.chatbot.loop.ModelConfig modelConfig;
+            try {
+                modelConfig = chatMainConfig();
+            } catch (cn.edu.scut.chatbot.llm.slot.ModelCatalog.SlotResolutionException e) {
+                log.error("chat_main 槽位解析失败（Turn 生成失败） errorCode=llm.config_missing traceId=n/a：{}",
+                        e.getMessage());
+                turnCoordinator.generationFailed(turn.getId(), "llm.config_missing:" + e.getMessage());
+                return;
+            }
             AgentContext context = new AgentContext(systemPromptFor(RunConfig.ExecutionForm.TURN, turn.getPlatform(), turn.getBotId(), turn.getGroupId(), null), history,
                     turnTools.stream().map(AgentTool::descriptor).toList(),
-                    GenerationParams.defaults());
+                    modelConfig);
             AgentLoop.RunOutcome outcome = executeSpec(turn.getPlatform(), turn.getBotId(),
                     turn.getGroupId(), turn.getId(), null, context, RunConfig.turnDefaults(),
                     session, turnTools);
@@ -164,11 +220,20 @@ public class GenerationRunner {
 
             List<AgentTool> taskTools = toolsetAssembler.assemble(RunConfig.ExecutionForm.LIGHT_TASK,
                     task.getPlatform(), task.getBotId(), task.getGroupId());
+            cn.edu.scut.chatbot.loop.ModelConfig modelConfig;
+            try {
+                modelConfig = chatMainConfig();
+            } catch (cn.edu.scut.chatbot.llm.slot.ModelCatalog.SlotResolutionException e) {
+                log.error("chat_main 槽位解析失败（轻任务失败） errorCode=llm.config_missing traceId=n/a：{}",
+                        e.getMessage());
+                taskCoordinator.taskConcluded(taskId, null, "llm.config_missing:" + e.getMessage());
+                return;
+            }
             AgentContext context = new AgentContext(
                     systemPromptFor(RunConfig.ExecutionForm.LIGHT_TASK, task.getPlatform(),
                             task.getBotId(), task.getGroupId(), "按任务指令自然地完成定时发言"),
                     history, taskTools.stream().map(AgentTool::descriptor).toList(),
-                    GenerationParams.defaults());
+                    modelConfig);
             AgentLoop.RunOutcome outcome = executeSpec(task.getPlatform(), task.getBotId(),
                     task.getGroupId(), null, taskId, context, RunConfig.lightTaskDefaults(),
                     session, taskTools);
@@ -222,10 +287,18 @@ public class GenerationRunner {
 
             List<AgentTool> deliveryTools = toolsetAssembler.assemble(RunConfig.ExecutionForm.TURN,
                     task.getPlatform(), task.getBotId(), task.getGroupId());
+            cn.edu.scut.chatbot.loop.ModelConfig modelConfig;
+            try {
+                modelConfig = chatMainConfig();
+            } catch (cn.edu.scut.chatbot.llm.slot.ModelCatalog.SlotResolutionException e) {
+                log.error("chat_main 槽位解析失败（交付未执行，待 Effects 重试） errorCode=llm.config_missing traceId=n/a：{}",
+                        e.getMessage());
+                return;
+            }
             AgentContext context = new AgentContext(systemPromptFor(RunConfig.ExecutionForm.TURN,
                     task.getPlatform(), task.getBotId(), task.getGroupId(), "任务结论人格化交付"), history,
                     deliveryTools.stream().map(AgentTool::descriptor).toList(),
-                    GenerationParams.defaults());
+                    modelConfig);
             executeSpec(task.getPlatform(), task.getBotId(), task.getGroupId(), null, taskId,
                     context, RunConfig.turnDefaults(), session, deliveryTools);
             compactAfterRun(session);
@@ -268,13 +341,21 @@ public class GenerationRunner {
                                              List<AgentTool> tools) {
         String windowLevel = session.getWindowLevel() != null
                 ? session.getWindowLevel() : AgentSessionDO.WINDOW_ACTIVE;
+        long runId = idGenerator.nextId();
         AgentLoop.RunSpec spec = new AgentLoop.RunSpec(
-                idGenerator.nextId(), platform, botId, groupId, turnId, taskId, context, config,
-                LoopHooks.builder(working -> contextAwareProjector.convert(working, windowLevel))
+                runId, platform, botId, groupId, turnId, taskId, context, config,
+                LoopHooks.builder(working -> contextAwareProjector.convert(working, windowLevel,
+                                visionCapableOf(context)))
                         .transformContext(original -> injectCurrentNotes(original, session))
+                        .resolveCredentials(() -> resolveCredentialFor(context))
                         .beforeToolCall(toolCallGuard.forRun(platform, botId, groupId))
                         .build(),
-                toolsByName(tools), streamFn, clock, idGenerator::nextId,
+                toolsByName(tools),
+                // 落账装饰器：Run 级 meta（run_kind 按执行形态）随 Run 绑定（research R8）
+                new cn.edu.scut.chatbot.engine.CostAwareStreamFn(streamFn, costRecorder,
+                        new cn.edu.scut.chatbot.llm.gateway.LlmCallMeta(platform, botId, groupId,
+                                runId, runKindOf(config), "run-" + runId, false)),
+                clock, idGenerator::nextId,
                 (completedRunId, turnMessages) -> {
                     if (config.form() == RunConfig.ExecutionForm.LIGHT_TASK) {
                         // 轻任务腹稿只写任务执行记录，不进群聊历史（设计 :505；
@@ -377,7 +458,7 @@ public class GenerationRunner {
                 "runtime-note", "[系统现注] 当前时间：" + clock.instant()
                 + "；进行中任务：" + runningTaskSummary(session)));
         return new AgentContext(original.systemPrompt(), augmented,
-                original.tools(), original.params());
+                original.tools(), original.modelConfig());
     }
 
     private String runningTaskSummary(AgentSessionDO session) {

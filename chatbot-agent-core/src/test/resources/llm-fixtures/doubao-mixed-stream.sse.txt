@@ -1,0 +1,18 @@
+data: {"id":"chatcmpl-doubao-003","created":1730000000,"model":"doubao-seed-1-6","choices":[{"index":0,"delta":{"role":"assistant","reasoning_content":"查一下天气再回复"}}]}
+
+data: {"id":"chatcmpl-doubao-003","created":1730000000,"model":"doubao-seed-1-6","choices":[{"index":0,"delta":{"content":"我先查天气。"}}]}
+
+data: {"id":"chatcmpl-doubao-003","created":1730000000,"model":"doubao-seed-1-6","choices":[{"index":0,"delta":{"content":"稍等。"}}]}
+
+data: {"id":"chatcmpl-doubao-003","created":1730000000,"model":"doubao-seed-1-6","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call-doubao-1","type":"function","function":{"name":"getWeather","arguments":""}}]}}]}
+
+data: {"id":"chatcmpl-doubao-003","created":1730000000,"model":"doubao-seed-1-6","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"city\":"}}]}}]}
+
+data: {"id":"chatcmpl-doubao-003","created":1730000000,"model":"doubao-seed-1-6","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"广州\"}"}}]}}]}
+
+data: {"id":"chatcmpl-doubao-003","created":1730000000,"model":"doubao-seed-1-6","choices":[{"index":0,"delta":{"content":"拿到结果就告诉你。"}}]}
+
+data: {"id":"chatcmpl-doubao-003","created":1730000000,"model":"doubao-seed-1-6","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":300,"completion_tokens":45,"prompt_tokens_details":{"cached_tokens":120},"total_tokens":345}}
+
+data: [DONE]
+

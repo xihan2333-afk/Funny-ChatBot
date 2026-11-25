@@ -140,7 +140,7 @@ class AgentLoopTest extends Specification {
         def history = [new cn.edu.scut.chatbot.loop.message.UserMessage(
                 "hist-1", clock.instant(), 50, null, "10086",
                 List.of(new cn.edu.scut.chatbot.contract.message.TextPart("text", "历史消息")))]
-        def context = new AgentContext("sys", history, List.of(), GenerationParams.defaults())
+        def context = new AgentContext("sys", history, List.of(), new ModelConfig(null, GenerationParams.defaults()))
         streamFn.addScript(ScriptedStreamFn.naturalText("新回复"))
 
         when:

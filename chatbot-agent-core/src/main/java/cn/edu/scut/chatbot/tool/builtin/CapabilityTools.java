@@ -32,6 +32,22 @@ public final class CapabilityTools {
     @Component
     static class GenerateImageTool implements AgentTool {
 
+        private static final Logger log = LoggerFactory.getLogger(GenerateImageTool.class);
+
+        private final cn.edu.scut.chatbot.llm.capability.ImageGenerator imageGenerator;
+
+        private final cn.edu.scut.chatbot.llm.gateway.StoredMediaStore mediaStore;
+
+        private final cn.edu.scut.chatbot.engine.outbox.OutboxWriter outboxWriter;
+
+        GenerateImageTool(cn.edu.scut.chatbot.llm.capability.ImageGenerator imageGenerator,
+                          cn.edu.scut.chatbot.llm.gateway.StoredMediaStore mediaStore,
+                          cn.edu.scut.chatbot.engine.outbox.OutboxWriter outboxWriter) {
+            this.imageGenerator = imageGenerator;
+            this.mediaStore = mediaStore;
+            this.outboxWriter = outboxWriter;
+        }
+
         @Override
         public ToolDescriptor descriptor() {
             return new ToolDescriptor(
@@ -46,13 +62,72 @@ public final class CapabilityTools {
 
         @Override
         public AgentToolResult execute(ToolInvocation invocation) {
-            // 桩（R10）：image_gen 槽位未绑定——isError"能力未配置"（工具失败是业务正常分支）
-            return AgentToolResult.error("能力未配置：生图槽位未绑定（2.3/2.7 落地后可用）");
+            try {
+                JsonNode arguments = cn.edu.scut.chatbot.bootstrap.JsonMappers.shared()
+                        .readTree(invocation.argumentsJson());
+                String prompt = arguments.path("prompt").asText();
+                cn.edu.scut.chatbot.llm.capability.ImageGenerator.ImageResult image =
+                        imageGenerator.generate(cn.edu.scut.chatbot.llm.slot.ModelCatalog.SLOT_IMAGE_GEN,
+                                cn.edu.scut.chatbot.llm.gateway.LlmCallMeta.of("image", null),
+                                prompt, null);
+                String storedRef = mediaStore.store(image.data(), image.mimeType());
+                if (storedRef == null) {
+                    // 转存失败按工具错误处理不阻塞循环（字节已在手，只差落存储）
+                    return AgentToolResult.error("图片生成成功但转存失败，本次未能发送");
+                }
+                long outboxId = enqueueMediaOutbound(invocation,
+                        new cn.edu.scut.chatbot.contract.message.ImagePart(
+                                cn.edu.scut.chatbot.contract.message.ImagePart.TYPE_IMAGE,
+                                null, storedRef,
+                                cn.edu.scut.chatbot.contract.message.MediaTransferStatusCodes.TRANSFERRED,
+                                "gen-image-" + storedRef, (long) image.data().length));
+                return AgentToolResult.text("已生成图片并发送（storedRef=" + storedRef
+                        + "，outboxId=" + outboxId + "）");
+            } catch (cn.edu.scut.chatbot.llm.capability.OpenAiCompatCapabilityClient.CapabilityException e) {
+                if (cn.edu.scut.chatbot.llm.slot.LlmErrorCodes.CONFIG_MISSING.equals(e.errorCode())) {
+                    // 槽位未绑定是业务正常分支（与 002 桩面行为一致）
+                    return AgentToolResult.error("能力未配置：生图槽位未绑定或无可用凭证");
+                }
+                log.error("生图失败 errorCode={} traceId=n/a", e.errorCode());
+                return AgentToolResult.error("生图失败（" + e.errorCode() + "）：" + e.getMessage());
+            } catch (Exception e) {
+                return AgentToolResult.error("生图执行失败：" + e.getMessage());
+            }
+        }
+
+        /**
+         * 发言经 outbox 先落库再投递（与 setReaction 同构路径）：媒体段带转存引用
+         */
+        private long enqueueMediaOutbound(ToolInvocation invocation,
+                                          cn.edu.scut.chatbot.contract.message.MessagePart mediaPart) {
+            String payloadJson = cn.edu.scut.chatbot.bootstrap.JsonMappers.valueToStringOrNull(
+                    new cn.edu.scut.chatbot.contract.out.SendGroupMessagePayload(
+                            List.of(mediaPart), null));
+            return outboxWriter.enqueueOutbound(invocation.platform(), invocation.botId(),
+                    invocation.groupId(),
+                    cn.edu.scut.chatbot.contract.envelope.PrimitiveTypeCodes.SEND_GROUP_MESSAGE,
+                    payloadJson, invocation.turnId(), invocation.taskId());
         }
     }
 
     @Component
     static class GenerateVoiceTool implements AgentTool {
+
+        private static final Logger log = LoggerFactory.getLogger(GenerateVoiceTool.class);
+
+        private final cn.edu.scut.chatbot.llm.capability.SpeechSynthesizer speechSynthesizer;
+
+        private final cn.edu.scut.chatbot.llm.gateway.StoredMediaStore mediaStore;
+
+        private final cn.edu.scut.chatbot.engine.outbox.OutboxWriter outboxWriter;
+
+        GenerateVoiceTool(cn.edu.scut.chatbot.llm.capability.SpeechSynthesizer speechSynthesizer,
+                          cn.edu.scut.chatbot.llm.gateway.StoredMediaStore mediaStore,
+                          cn.edu.scut.chatbot.engine.outbox.OutboxWriter outboxWriter) {
+            this.speechSynthesizer = speechSynthesizer;
+            this.mediaStore = mediaStore;
+            this.outboxWriter = outboxWriter;
+        }
 
         @Override
         public ToolDescriptor descriptor() {
@@ -68,7 +143,49 @@ public final class CapabilityTools {
 
         @Override
         public AgentToolResult execute(ToolInvocation invocation) {
-            return AgentToolResult.error("能力未配置：语音槽位未绑定（2.3/2.7 落地后可用）");
+            try {
+                JsonNode arguments = cn.edu.scut.chatbot.bootstrap.JsonMappers.shared()
+                        .readTree(invocation.argumentsJson());
+                String text = arguments.path("text").asText();
+                cn.edu.scut.chatbot.llm.capability.SpeechSynthesizer.VoiceResult voice =
+                        speechSynthesizer.synthesize(cn.edu.scut.chatbot.llm.slot.ModelCatalog.SLOT_VOICE_GEN,
+                                cn.edu.scut.chatbot.llm.gateway.LlmCallMeta.of("voice", null),
+                                text, null);
+                String storedRef = mediaStore.store(voice.data(), voice.mimeType());
+                if (storedRef == null) {
+                    return AgentToolResult.error("语音合成成功但转存失败，本次未能发送");
+                }
+                long outboxId = enqueueMediaOutbound(invocation,
+                        new cn.edu.scut.chatbot.contract.message.AudioPart(
+                                cn.edu.scut.chatbot.contract.message.AudioPart.TYPE_AUDIO,
+                                null, storedRef,
+                                cn.edu.scut.chatbot.contract.message.MediaTransferStatusCodes.TRANSFERRED,
+                                "gen-voice-" + storedRef, (long) voice.data().length));
+                return AgentToolResult.text("已合成语音并发送（storedRef=" + storedRef
+                        + "，outboxId=" + outboxId + "）");
+            } catch (cn.edu.scut.chatbot.llm.capability.OpenAiCompatCapabilityClient.CapabilityException e) {
+                if (cn.edu.scut.chatbot.llm.slot.LlmErrorCodes.CONFIG_MISSING.equals(e.errorCode())) {
+                    return AgentToolResult.error("能力未配置：语音槽位未绑定或无可用凭证");
+                }
+                log.error("语音合成失败 errorCode={} traceId=n/a", e.errorCode());
+                return AgentToolResult.error("语音合成失败（" + e.errorCode() + "）：" + e.getMessage());
+            } catch (Exception e) {
+                return AgentToolResult.error("语音合成执行失败：" + e.getMessage());
+            }
+        }
+
+        /**
+         * 发言经 outbox 先落库再投递（与生图同构路径）
+         */
+        private long enqueueMediaOutbound(ToolInvocation invocation,
+                                          cn.edu.scut.chatbot.contract.message.MessagePart mediaPart) {
+            String payloadJson = cn.edu.scut.chatbot.bootstrap.JsonMappers.valueToStringOrNull(
+                    new cn.edu.scut.chatbot.contract.out.SendGroupMessagePayload(
+                            List.of(mediaPart), null));
+            return outboxWriter.enqueueOutbound(invocation.platform(), invocation.botId(),
+                    invocation.groupId(),
+                    cn.edu.scut.chatbot.contract.envelope.PrimitiveTypeCodes.SEND_GROUP_MESSAGE,
+                    payloadJson, invocation.turnId(), invocation.taskId());
         }
     }
 

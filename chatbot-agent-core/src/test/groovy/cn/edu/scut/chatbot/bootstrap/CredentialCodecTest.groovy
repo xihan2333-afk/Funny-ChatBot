@@ -67,4 +67,69 @@ class CredentialCodecTest extends Specification {
         then:
         first != second
     }
+
+    def "字节数组入口往返：解密结果与原文一致（V6 key_cipher VARBINARY 形态）"() {
+        given:
+        def codec = new CredentialCodec(randomKey())
+        def plaintext = "sk-byte-entry-token-" + random.nextLong()
+
+        when:
+        def packed = codec.encryptToBytes(plaintext)
+        def recovered = codec.decryptFromBytes(packed)
+
+        then:
+        recovered == plaintext
+        packed.length > plaintext.getBytes("UTF-8").length
+    }
+
+    def "字节数组入口错误密钥解密必须失败"() {
+        given:
+        def encryptCodec = new CredentialCodec(randomKey())
+        def decryptCodec = new CredentialCodec(randomKey())
+
+        when:
+        decryptCodec.decryptFromBytes(encryptCodec.encryptToBytes("明文"))
+
+        then:
+        thrown(NonRetryableException)
+    }
+
+    def "字节数组入口密文不包含明文字节序列"() {
+        given:
+        def codec = new CredentialCodec(randomKey())
+        def plaintext = "super-secret-token-1234567890"
+        def plainBytes = plaintext.getBytes("UTF-8")
+
+        when:
+        def packed = codec.encryptToBytes(plaintext)
+
+        then:
+        !new String(packed, "ISO-8859-1").contains(plaintext)
+        !containsSubsequence(packed, plainBytes)
+
+        when: "短密文长度不合法直接拒绝（防截断数据）"
+        codec.decryptFromBytes(new byte[5])
+
+        then:
+        thrown(NonRetryableException)
+    }
+
+    private boolean containsSubsequence(byte[] haystack, byte[] needle) {
+        if (needle.length == 0) {
+            return true
+        }
+        for (int i = 0; i <= haystack.length - needle.length; i++) {
+            boolean matched = true
+            for (int j = 0; j < needle.length; j++) {
+                if (haystack[i + j] != needle[j]) {
+                    matched = false
+                    break
+                }
+            }
+            if (matched) {
+                return true
+            }
+        }
+        return false
+    }
 }

@@ -16,7 +16,7 @@ class ContextAwareProjectorTest extends Specification {
     /** 主动放大 active/quiet 档差（20000 对 1000）——档位参数化是本类的被测意图，
      *  不与真实预算数值耦合；token 估算口径是 record toString（宁高不低），消息条数只求量级 */
     ContextAwareProjector projector = new ContextAwareProjector(
-            new WindowAssembler(20000, 1000), new MediaProjector())
+            new WindowAssembler(20000, 1000), new MediaProjector({ ref -> null }))
 
     private UserMessage user(String id, int offsetMinutes, String text) {
         return new UserMessage(id, Instant.ofEpochSecond(1775000000 + offsetMinutes * 60L),

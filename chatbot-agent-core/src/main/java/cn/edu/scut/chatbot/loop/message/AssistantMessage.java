@@ -54,10 +54,12 @@ public record AssistantMessage(
     }
 
     /**
-     * token 用量四值（成本统计的事件数据源）
+     * token 用量五值（成本统计的事件数据源）。cachedTokens 是缓存命中量（各家字段名
+     * 接收侧探测归一），为 input 的子集——成本折算命中部分按缓存单价、不重复计输入价。
      */
-    public record TokenUsage(int inputTokens, int outputTokens, int reasoningTokens, int totalTokens) {
+    public record TokenUsage(int inputTokens, int outputTokens, int reasoningTokens,
+                             int cachedTokens, int totalTokens) {
 
-        public static final TokenUsage ZERO = new TokenUsage(0, 0, 0, 0);
+        public static final TokenUsage ZERO = new TokenUsage(0, 0, 0, 0, 0);
     }
 }

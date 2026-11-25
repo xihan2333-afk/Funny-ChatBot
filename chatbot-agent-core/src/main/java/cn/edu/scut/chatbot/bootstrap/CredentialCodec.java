@@ -94,15 +94,7 @@ public class CredentialCodec {
     public String decrypt(String packedBase64) {
         try {
             byte[] packed = Base64.getDecoder().decode(packedBase64);
-            if (packed.length <= IV_BYTES) {
-                throw new NonRetryableException(ToolErrorCodes.CREDENTIAL_DECRYPT_FAILED,
-                        "凭证密文长度不合法（不足 IV + tag），可能数据损坏");
-            }
-            GCMParameterSpec spec = new GCMParameterSpec(TAG_BITS, packed, 0, IV_BYTES);
-            Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-            cipher.init(Cipher.DECRYPT_MODE, key, spec);
-            byte[] plain = cipher.doFinal(packed, IV_BYTES, packed.length - IV_BYTES);
-            return new String(plain, StandardCharsets.UTF_8);
+            return decryptPacked(packed);
         } catch (NonRetryableException e) {
             throw e;
         } catch (Exception e) {
@@ -111,5 +103,53 @@ public class CredentialCodec {
             throw new NonRetryableException(ToolErrorCodes.CREDENTIAL_DECRYPT_FAILED,
                     "凭证解密失败：密钥不匹配或密文损坏", e);
         }
+    }
+
+    /**
+     * 加密（字节数组入口，V6 credential.key_cipher VARBINARY 形态）：
+     * 输出 [12 字节随机 IV | 密文 + 16 字节 tag] 原始字节，无 base64 包装
+     */
+    public byte[] encryptToBytes(String plaintext) {
+        try {
+            byte[] iv = new byte[IV_BYTES];
+            random.nextBytes(iv);
+            Cipher cipher = Cipher.getInstance(TRANSFORMATION);
+            cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(TAG_BITS, iv));
+            byte[] cipherBytes = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
+            byte[] packed = new byte[iv.length + cipherBytes.length];
+            System.arraycopy(iv, 0, packed, 0, iv.length);
+            System.arraycopy(cipherBytes, 0, packed, iv.length, cipherBytes.length);
+            return packed;
+        } catch (Exception e) {
+            throw new NonRetryableException(ToolErrorCodes.CREDENTIAL_DECRYPT_FAILED,
+                    "凭证加密失败：" + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 解密（字节数组入口——key_cipher 列直读形态）
+     */
+    public String decryptFromBytes(byte[] packed) {
+        try {
+            return decryptPacked(packed);
+        } catch (NonRetryableException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("凭证解密失败 errorCode={}（密钥不匹配或密文损坏）", ToolErrorCodes.CREDENTIAL_DECRYPT_FAILED);
+            throw new NonRetryableException(ToolErrorCodes.CREDENTIAL_DECRYPT_FAILED,
+                    "凭证解密失败：密钥不匹配或密文损坏", e);
+        }
+    }
+
+    private String decryptPacked(byte[] packed) throws Exception {
+        if (packed == null || packed.length <= IV_BYTES) {
+            throw new NonRetryableException(ToolErrorCodes.CREDENTIAL_DECRYPT_FAILED,
+                    "凭证密文长度不合法（不足 IV + tag），可能数据损坏");
+        }
+        GCMParameterSpec spec = new GCMParameterSpec(TAG_BITS, packed, 0, IV_BYTES);
+        Cipher cipher = Cipher.getInstance(TRANSFORMATION);
+        cipher.init(Cipher.DECRYPT_MODE, key, spec);
+        byte[] plain = cipher.doFinal(packed, IV_BYTES, packed.length - IV_BYTES);
+        return new String(plain, StandardCharsets.UTF_8);
     }
 }
