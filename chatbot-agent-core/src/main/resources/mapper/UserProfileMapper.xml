@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.memory.profile.UserProfileMapper">
+
+    <insert id="upsertProfile">
+        INSERT INTO user_profile (platform, bot_id, group_id, user_id, platform_name, call_name,
+                                  activity_level, interest_tags, familiarity, affinity, interact_digest)
+        VALUES (#{platform}, #{botId}, #{groupId}, #{userId}, #{platformName}, #{callName},
+                #{activityLevel}, #{interestTags}, #{familiarity}, #{affinity}, #{interactDigest}) ON DUPLICATE KEY
+        UPDATE platform_name = COALESCE (VALUES (platform_name), platform_name),
+            call_name = COALESCE (VALUES (call_name), call_name),
+            activity_level = COALESCE (VALUES (activity_level), activity_level),
+            interest_tags = COALESCE (VALUES (interest_tags), interest_tags),
+            interact_digest = COALESCE (VALUES (interact_digest), interact_digest),
+            familiarity = GREATEST(familiarity, VALUES (familiarity)),
+            affinity =
+        VALUES (affinity)
+    </insert>
+
+    <select id="selectByGroupAndUser" resultType="cn.edu.scut.chatbot.memory.profile.UserProfileDO">
+        SELECT id,
+               platform,
+               bot_id          AS botId,
+               group_id        AS groupId,
+               user_id         AS userId,
+               platform_name   AS platformName,
+               call_name       AS callName,
+               activity_level  AS activityLevel,
+               interest_tags   AS interestTags,
+               familiarity,
+               affinity,
+               interact_digest AS interactDigest,
+               updated_at      AS updatedAt
+        FROM user_profile
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+          AND user_id = #{userId}
+    </select>
+
+    <select id="selectByGroup" resultType="cn.edu.scut.chatbot.memory.profile.UserProfileDO">
+        SELECT id,
+               platform,
+               bot_id          AS botId,
+               group_id        AS groupId,
+               user_id         AS userId,
+               platform_name   AS platformName,
+               call_name       AS callName,
+               activity_level  AS activityLevel,
+               interest_tags   AS interestTags,
+               familiarity,
+               affinity,
+               interact_digest AS interactDigest,
+               updated_at      AS updatedAt
+        FROM user_profile
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+        ORDER BY id
+    </select>
+
+    <insert id="applyDeltas">
+        INSERT INTO user_profile (platform, bot_id, group_id, user_id, platform_name,
+                                  familiarity, affinity)
+        VALUES (#{platform}, #{botId}, #{groupId}, #{userId}, #{platformName},
+                GREATEST(0, LEAST(100, #{familiarityDelta})),
+                GREATEST(-100, LEAST(100, #{affinityDelta}))) ON DUPLICATE KEY
+        UPDATE platform_name = COALESCE (#{platformName}, platform_name),
+            familiarity = GREATEST(0, LEAST(100, familiarity + #{familiarityDelta})),
+            affinity = GREATEST(-100, LEAST(100, affinity + #{affinityDelta}))
+    </insert>
+
+    <update id="updateFields">
+        UPDATE user_profile
+        SET call_name       = COALESCE(#{callName}, call_name),
+            interest_tags   = COALESCE(#{interestTags}, interest_tags),
+            interact_digest = COALESCE(#{interactDigest}, interact_digest),
+            activity_level  = COALESCE(#{activityLevel}, activity_level),
+            affinity        = COALESCE(#{affinity}, affinity)
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteByGroupAndUser">
+        DELETE
+        FROM user_profile
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+          AND user_id = #{userId}
+    </delete>
+
+</mapper>

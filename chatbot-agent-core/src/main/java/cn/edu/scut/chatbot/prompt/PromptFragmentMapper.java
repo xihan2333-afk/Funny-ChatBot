@@ -6,7 +6,9 @@ import org.apache.ibatis.annotations.Param;
 import java.util.List;
 
 /**
- * prompt_fragment / persona / content_version 表 Mapper。
+ * prompt_fragment / content_version 表 Mapper。
+ * persona 表读写已迁 memory/persona/PersonaMapper（T034——人格实体归位，
+ * 依赖方向 prompt → memory）。
  */
 @Mapper
 public interface PromptFragmentMapper {
@@ -20,18 +22,6 @@ public interface PromptFragmentMapper {
     int updateFragment(PromptFragmentDO fragment);
 
     int deleteByKey(@Param("fragmentKey") String fragmentKey);
-
-    // ===== persona =====
-
-    PersonaDO selectDefaultPersona();
-
-    PersonaDO selectPersonaByName(@Param("name") String name);
-
-    List<PersonaDO> selectAllPersonas();
-
-    int insertPersona(PersonaDO persona);
-
-    int updatePersona(PersonaDO persona);
 
     // ===== content_version =====
 

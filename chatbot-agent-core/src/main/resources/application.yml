@@ -87,3 +87,8 @@ agent:
   # ===== 群状态 Hash 只读写 L0/调度最小字段集（键位契约 redis-streams 第 3 节）=====
   cooldown-millis: 8000
   rate-limit-per-minute: 6
+
+# ===== Qdrant 向量库（部署层 .env；本地无鉴权可省 key；集合维度登记在 system_param）=====
+qdrant:
+  base-url: ${QDRANT_BASE_URL:http://localhost:6333}
+  api-key: ${QDRANT_API_KEY:}

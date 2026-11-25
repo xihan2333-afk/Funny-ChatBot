@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.memory.profile.MemberRelationMapper">
+
+    <insert id="upsertRelation">
+        INSERT INTO member_relation (platform, bot_id, group_id, user_id_a, user_id_b,
+                                     relation_kind, strength)
+        VALUES (#{platform}, #{botId}, #{groupId}, #{userIdA}, #{userIdB},
+                #{relationKind}, GREATEST(0, LEAST(100, #{strength}))) ON DUPLICATE KEY
+        UPDATE relation_kind =
+        VALUES (relation_kind), strength = GREATEST(0, LEAST(100, strength + #{strength}))
+    </insert>
+
+    <select id="selectByGroup" resultType="cn.edu.scut.chatbot.memory.profile.MemberRelationDO">
+        SELECT id,
+               platform,
+               bot_id        AS botId,
+               group_id      AS groupId,
+               user_id_a     AS userIdA,
+               user_id_b     AS userIdB,
+               relation_kind AS relationKind,
+               strength,
+               updated_at    AS updatedAt
+        FROM member_relation
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+        ORDER BY id
+    </select>
+
+    <select id="selectPair" resultType="cn.edu.scut.chatbot.memory.profile.MemberRelationDO">
+        SELECT id,
+               platform,
+               bot_id        AS botId,
+               group_id      AS groupId,
+               user_id_a     AS userIdA,
+               user_id_b     AS userIdB,
+               relation_kind AS relationKind,
+               strength,
+               updated_at    AS updatedAt
+        FROM member_relation
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+          AND user_id_a = #{userIdA}
+          AND user_id_b = #{userIdB}
+    </select>
+
+</mapper>

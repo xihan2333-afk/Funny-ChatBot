@@ -35,7 +35,7 @@ public class EngineConfiguration {
     @Bean
     @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean(L1AssessmentModel.class)
     public L1AssessmentModel unavailableL1Model() {
-        return (prompt, digests, recent, preference) -> {
+        return (prompt, digests, recent, preference, groupStateDigest) -> {
             throw new IllegalStateException("L1 评估模型未接入（2.3 feature 落地前不可用）");
         };
     }
@@ -155,9 +155,12 @@ public class EngineConfiguration {
                                            L1AssessmentModel model,
                                            SystemParamService systemParamService,
                                            cn.edu.scut.chatbot.prompt.PromptFragmentMapper fragmentMapper,
-                                           cn.edu.scut.chatbot.prompt.PersonaResolver personaResolver,
+                                           cn.edu.scut.chatbot.memory.persona.PersonaResolver personaResolver,
                                            cn.edu.scut.chatbot.engine.session.AgentSessionMapper sessionMapper,
                                            cn.edu.scut.chatbot.engine.session.TranscriptCodec transcriptCodec,
+                                           cn.edu.scut.chatbot.memory.social.GroupStateService groupStateService,
+                                           cn.edu.scut.chatbot.memory.profile.AffinityService affinityService,
+                                           cn.edu.scut.chatbot.memory.persona.PersonaPreferenceDigestRenderer preferenceRenderer,
                                            Clock clock) {
         return new L1BatchAssessor(
                 triggerEventMapper,
@@ -194,7 +197,23 @@ public class EngineConfiguration {
                     }
                     return lines;
                 },
-                personaResolver::preferenceText,
+                // 人格偏好摘要（T026 渲染器——健谈度等数值 + 当前情绪，评估时现渲染）
+                (platform, botId, groupId) -> preferenceRenderer.render(
+                        new cn.edu.scut.chatbot.bootstrap.GroupKey(platform, botId, groupId)),
+                // 群状态摘要：评估时现渲染（纯渲染零模型）
+                (platform, botId, groupId) -> {
+                    var key = new cn.edu.scut.chatbot.bootstrap.GroupKey(platform, botId, groupId);
+                    return groupStateService.renderDigest(groupStateService.read(key));
+                },
+                // 发言人态度档位：无感返回 null（不标注）
+                (platform, botId, groupId, sender) -> {
+                    var tier = affinityService.view(
+                            new cn.edu.scut.chatbot.bootstrap.GroupKey(platform, botId, groupId), sender).tier();
+                    return tier.significant() ? tier.label() : null;
+                },
+                // 人格名解析：替换硬编码「小趣」（resolve 失败回默认人格是 Resolver 既有语义）
+                (platform, botId, groupId) -> personaResolver
+                        .resolve(platform, botId, groupId).getName(),
                 clock,
                 systemParamService.getInt("gate.l1_max_retry", 3),
                 systemParamService.getLong("gate.l1_backoff_base_millis", 500));

@@ -76,4 +76,14 @@ public interface TriggerEventMapper {
     TriggerEventDO selectOldestUndeliveredTaskDelivery(@Param("platform") String platform,
                                                        @Param("botId") String botId,
                                                        @Param("groupId") String groupId);
+
+    /**
+     * 某时刻以来该群指定类型的内部触发条数（主动开口日预算的计数输入——
+     * 事实留档即状态，零新增记账）
+     */
+    long countInternalByTypeSince(@Param("platform") String platform,
+                                  @Param("botId") String botId,
+                                  @Param("groupId") String groupId,
+                                  @Param("eventType") String eventType,
+                                  @Param("since") java.time.LocalDateTime since);
 }

@@ -73,6 +73,15 @@ public class ScriptedHttpUpstream implements AutoCloseable {
 
     private final Map<String, java.util.Queue<List<Step>>> scriptsByPath = new ConcurrentHashMap<>();
 
+    /**
+     * 动态剧本（004 T005：按请求内容现算响应的注册面）——embedding 确定性伪向量
+     * （请求 input 文本 → 哈希派生向量）与抽取 JSON 按请求内容选回放分支（解析容错
+     * 用例回放非法 JSON）这类「响应依赖请求体」的场景，静态队列回放不了，走这里。
+     * 同路径动态剧本与静态队列并存时动态优先。
+     */
+    private final Map<String, java.util.function.Function<RecordedRequest, Step>> dynamicScriptsByPath =
+            new ConcurrentHashMap<>();
+
     private final List<RecordedRequest> requests = new CopyOnWriteArrayList<>();
 
     private final AtomicInteger totalHits = new AtomicInteger();
@@ -100,6 +109,16 @@ public class ScriptedHttpUpstream implements AutoCloseable {
 
     public ScriptedHttpUpstream addScript(String path, Step... steps) {
         return addScript(path, List.of(steps));
+    }
+
+    /**
+     * 注册动态剧本：每次命中按请求内容现算一个步骤（通常为 Respond）。
+     * 与静态队列同路径并存时动态优先（静态用于重试逐次变形、动态用于请求敏感响应）。
+     */
+    public ScriptedHttpUpstream addDynamicScript(String path,
+                                                 java.util.function.Function<RecordedRequest, Step> responder) {
+        dynamicScriptsByPath.put(path, responder);
+        return this;
     }
 
     /**
@@ -213,18 +232,26 @@ public class ScriptedHttpUpstream implements AutoCloseable {
         String path = exchange.getRequestURI().getPath();
         String query = exchange.getRequestURI().getRawQuery();
         String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
-        requests.add(new RecordedRequest(exchange.getRequestMethod(), path, query,
-                exchange.getRequestHeaders(), body));
+        RecordedRequest current = new RecordedRequest(exchange.getRequestMethod(), path, query,
+                exchange.getRequestHeaders(), body);
+        requests.add(current);
         try {
-            playScript(exchange, path);
+            playScript(exchange, path, current);
         } finally {
             exchange.close();
         }
     }
 
-    private void playScript(HttpExchange exchange, String path) throws IOException {
-        java.util.Queue<List<Step>> scripts = scriptsByPath.get(path);
-        List<Step> script = scripts == null ? null : scripts.poll();
+    private void playScript(HttpExchange exchange, String path, RecordedRequest current) throws IOException {
+        java.util.function.Function<RecordedRequest, Step> dynamic = dynamicScriptsByPath.get(path);
+        List<Step> script;
+        if (dynamic != null) {
+            Step computed = dynamic.apply(current);
+            script = computed == null ? null : List.of(computed);
+        } else {
+            java.util.Queue<List<Step>> scripts = scriptsByPath.get(path);
+            script = scripts == null ? null : scripts.poll();
+        }
         if (script == null) {
             respond(exchange, 500, "text/plain", "no script for path: " + path);
             return;

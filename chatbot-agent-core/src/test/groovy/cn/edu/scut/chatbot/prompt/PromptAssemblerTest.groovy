@@ -7,6 +7,8 @@ import cn.edu.scut.chatbot.engine.intake.GroupConfigMapper
 import cn.edu.scut.chatbot.engine.intake.GroupDO
 import cn.edu.scut.chatbot.engine.intake.GroupMapper
 import cn.edu.scut.chatbot.loop.RunConfig
+import cn.edu.scut.chatbot.memory.persona.PersonaDO
+import cn.edu.scut.chatbot.memory.persona.PersonaResolver
 import spock.lang.Specification
 
 class PromptAssemblerTest extends Specification {
@@ -16,9 +18,10 @@ class PromptAssemblerTest extends Specification {
     def groupConfigMapper = Mock(GroupConfigMapper)
     def personaResolver = Mock(PersonaResolver)
     def skillRenderer = Mock(SkillDirectoryRenderer)
+    def groupProfileMapper = Mock(cn.edu.scut.chatbot.memory.profile.GroupProfileMapper)
 
     def assembler = new PromptAssembler(fragmentMapper, groupMapper, groupConfigMapper,
-            personaResolver, skillRenderer)
+            personaResolver, skillRenderer, groupProfileMapper)
 
     private PromptFragmentDO frag(String key, String layer, String formFit, String content) {
         def fragment = new PromptFragmentDO()

@@ -1,10 +1,10 @@
 package cn.edu.scut.chatbot.engine.outbox;
 
-import cn.edu.scut.chatbot.exception.RetryableException;
 import cn.edu.scut.chatbot.bootstrap.JsonMappers;
 import cn.edu.scut.chatbot.contract.envelope.EnvelopePayload;
 import cn.edu.scut.chatbot.contract.envelope.EventEnvelope;
 import cn.edu.scut.chatbot.engine.EngineErrorCodes;
+import cn.edu.scut.chatbot.exception.RetryableException;
 import cn.edu.scut.chatbot.infrastructure.EnvelopeCodec;
 import cn.edu.scut.chatbot.infrastructure.redis.RedisStreamGateway;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -27,16 +27,19 @@ public class StreamDispatcher {
     private final OutboxMapper outboxMapper;
     private final RedisStreamGateway gateway;
     private final EnvelopeCodec codec;
+    private final java.time.Clock clock;
 
     private final String outStreamKey;
 
     public StreamDispatcher(OutboxMapper outboxMapper,
                             RedisStreamGateway gateway,
                             EnvelopeCodec codec,
+                            java.time.Clock clock,
                             @Value("${agent.stream.out-key}") String outStreamKey) {
         this.outboxMapper = outboxMapper;
         this.gateway = gateway;
         this.codec = codec;
+        this.clock = clock;
         this.outStreamKey = outStreamKey;
     }
 
@@ -54,7 +57,7 @@ public class StreamDispatcher {
             log.debug("outbox 行已非 pending，跳过投递 outboxId={} status={}", outboxId, outbox.getStatus());
             return;
         }
-        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        java.time.LocalDateTime now = java.time.LocalDateTime.now(clock);
         if (outboxMapper.claimForDispatch(outboxId, now) == 0) {
             return;   // 并发占用失败：其他投递者已领走
         }

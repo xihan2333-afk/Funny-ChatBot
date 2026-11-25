@@ -27,7 +27,7 @@ class GatewayL1AssessorTest extends Specification {
                 null)
 
         when:
-        def decisions = assessor.assess("评估提示词", digests, ["A：在吗"], "好奇心强")
+        def decisions = assessor.assess("评估提示词", digests, ["A：在吗"], "好奇心强", null)
 
         then:
         decisions.size() == 2
@@ -41,7 +41,7 @@ class GatewayL1AssessorTest extends Specification {
         gateway.callOnce("eval_l1", _, _, _, _) >> CallOnceResult.success("这不是 JSON", null)
 
         when:
-        assessor.assess("评估提示词", digests, [], null)
+        assessor.assess("评估提示词", digests, [], null, null)
 
         then:
         thrown(Exception)
@@ -52,7 +52,7 @@ class GatewayL1AssessorTest extends Specification {
         gateway.callOnce("eval_l1", _, _, _, _) >> CallOnceResult.failure("llm.config_missing", "槽位未绑定")
 
         when:
-        assessor.assess("评估提示词", digests, [], null)
+        assessor.assess("评估提示词", digests, [], null, null)
 
         then:
         def e = thrown(IllegalStateException)

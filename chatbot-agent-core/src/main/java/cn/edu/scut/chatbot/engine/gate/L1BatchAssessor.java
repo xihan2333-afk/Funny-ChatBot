@@ -1,9 +1,9 @@
 package cn.edu.scut.chatbot.engine.gate;
 
-import cn.edu.scut.chatbot.exception.RetryableException;
 import cn.edu.scut.chatbot.engine.EngineErrorCodes;
 import cn.edu.scut.chatbot.engine.intake.TriggerEventDO;
 import cn.edu.scut.chatbot.engine.intake.TriggerEventMapper;
+import cn.edu.scut.chatbot.exception.RetryableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,11 +57,42 @@ public class L1BatchAssessor {
         String preferenceText(String platform, String botId, String groupId);
     }
 
+    /**
+     * 群状态摘要取数接口（US8 GroupStateService.renderDigest 挂接——评估时现渲染）
+     */
+    @FunctionalInterface
+    public interface GroupStateDigestSupplier {
+
+        String groupStateText(String platform, String botId, String groupId);
+    }
+
+    /**
+     * 发言人态度档位取数接口（US4 AffinityService 挂接——返回 null 表示无感不标注）
+     */
+    @FunctionalInterface
+    public interface AttitudeAnnotator {
+
+        String tierLabel(String platform, String botId, String groupId, String senderUserId);
+    }
+
+    /**
+     * 当前人格名取数接口（T027 修复 promptSupplier「小趣」硬编码——
+     * 经 PersonaResolver 解析当前人格，解析失败回默认人格是 Resolver 既有语义）
+     */
+    @FunctionalInterface
+    public interface PersonaNameSupplier {
+
+        String personaName(String platform, String botId, String groupId);
+    }
+
     private final TriggerEventMapper triggerEventMapper;
     private final L1AssessmentModel model;
     private final AssessmentPromptSupplier promptSupplier;
     private final RecentTranscriptSupplier recentTranscriptSupplier;
     private final PersonaPreferenceSupplier personaPreferenceSupplier;
+    private final GroupStateDigestSupplier groupStateDigestSupplier;
+    private final AttitudeAnnotator attitudeAnnotator;
+    private final PersonaNameSupplier personaNameSupplier;
     private final Clock clock;
     private final int maxRetry;
     private final long backoffBaseMillis;
@@ -71,6 +102,9 @@ public class L1BatchAssessor {
                            AssessmentPromptSupplier promptSupplier,
                            RecentTranscriptSupplier recentTranscriptSupplier,
                            PersonaPreferenceSupplier personaPreferenceSupplier,
+                           GroupStateDigestSupplier groupStateDigestSupplier,
+                           AttitudeAnnotator attitudeAnnotator,
+                           PersonaNameSupplier personaNameSupplier,
                            Clock clock,
                            int maxRetry,
                            long backoffBaseMillis) {
@@ -79,6 +113,9 @@ public class L1BatchAssessor {
         this.promptSupplier = promptSupplier;
         this.recentTranscriptSupplier = recentTranscriptSupplier;
         this.personaPreferenceSupplier = personaPreferenceSupplier;
+        this.groupStateDigestSupplier = groupStateDigestSupplier;
+        this.attitudeAnnotator = attitudeAnnotator;
+        this.personaNameSupplier = personaNameSupplier;
         this.clock = clock;
         this.maxRetry = maxRetry;
         this.backoffBaseMillis = backoffBaseMillis;
@@ -98,11 +135,15 @@ public class L1BatchAssessor {
                 .map(trigger -> new L1AssessmentModel.TriggerDigest(
                         trigger.getDedupKey(), trigger.getEventType(), trigger.getDigest()))
                 .toList();
-        List<String> recentLines = recentTranscriptSupplier.recentLines(platform, botId, groupId, RECENT_WINDOW);
+        List<String> recentLines = annotateAttitudes(
+                recentTranscriptSupplier.recentLines(platform, botId, groupId, RECENT_WINDOW),
+                platform, botId, groupId);
         String preference = personaPreferenceSupplier.preferenceText(platform, botId, groupId);
-        String prompt = promptSupplier.supply("小趣");
+        String groupStateDigest = groupStateDigestSupplier.groupStateText(platform, botId, groupId);
+        String prompt = promptSupplier.supply(personaNameSupplier.personaName(platform, botId, groupId));
 
-        List<L1AssessmentModel.AssessedDecision> decisions = callWithRetry(prompt, digests, recentLines, preference);
+        List<L1AssessmentModel.AssessedDecision> decisions = callWithRetry(
+                prompt, digests, recentLines, preference, groupStateDigest);
 
         if (decisions == null) {
             // 重试耗尽：保守 ignore + degrade 层标记（评估失败不放大为系统故障）
@@ -130,10 +171,10 @@ public class L1BatchAssessor {
      */
     private List<L1AssessmentModel.AssessedDecision> callWithRetry(
             String prompt, List<L1AssessmentModel.TriggerDigest> digests,
-            List<String> recentLines, String preference) {
+            List<String> recentLines, String preference, String groupStateDigest) {
         for (int attempt = 0; attempt <= maxRetry; attempt++) {
             try {
-                return model.assess(prompt, digests, recentLines, preference);
+                return model.assess(prompt, digests, recentLines, preference, groupStateDigest);
             } catch (Exception e) {
                 if (attempt == maxRetry) {
                     log.error("L1 评估重试耗尽（保守 ignore 降级） errorCode={} "
@@ -148,6 +189,32 @@ public class L1BatchAssessor {
             }
         }
         return null;
+    }
+
+    /**
+     * 档位标注：近期消息行「userId：文本」的显著态度发言人行首注入「[档位]」——
+     * 无感（annotator 返回 null）不标注；调制语义（挚友更易触发、厌恶者非 @ 更易沉默）
+     * 由模型消费，L0 强制回应不被豁免。
+     */
+    private List<String> annotateAttitudes(List<String> recentLines,
+                                           String platform, String botId, String groupId) {
+        List<String> annotated = new ArrayList<>(recentLines.size());
+        for (String line : recentLines) {
+            int separator = line.indexOf('：');
+            if (separator <= 0) {
+                annotated.add(line);
+                continue;
+            }
+            String sender = line.substring(0, separator);
+            String tierLabel;
+            try {
+                tierLabel = attitudeAnnotator.tierLabel(platform, botId, groupId, sender);
+            } catch (Exception e) {
+                tierLabel = null;   // 画像取数失败不拦评估
+            }
+            annotated.add(tierLabel == null ? line : "[" + tierLabel + "]" + line);
+        }
+        return annotated;
     }
 
     private void degradeAll(List<TriggerEventDO> pending) {

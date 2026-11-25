@@ -36,6 +36,9 @@ class ContextManagementIT extends AbstractIntegrationTest {
     private cn.edu.scut.chatbot.context.compaction.TranscriptCompactor compactor;
 
     @Autowired
+    private cn.edu.scut.chatbot.memory.sediment.SedimentJobMapper jobMapper;
+
+    @Autowired
     private WindowAssembler windowAssembler;
 
     @Autowired
@@ -70,6 +73,11 @@ class ContextManagementIT extends AbstractIntegrationTest {
         assertThat(transcript).anySatisfy(message ->
                 assertThat(message.kind().code()).isEqualTo("summary"));
         assertThat(transcript.size()).isGreaterThan(80);
+
+        // 004 R1：压缩成功必有工单行（同事务落 sediment_job，幂等键 = summaryEntryId）
+        var jobs = jobMapper.selectByGroup("qq", "10000", TEST_GROUP);
+        assertThat(jobs).anySatisfy(job ->
+                assertThat(job.getIdempotentKey()).isEqualTo(summary.messageId()));
     }
 
     @Test

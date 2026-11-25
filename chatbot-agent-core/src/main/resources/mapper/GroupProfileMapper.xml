@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.memory.profile.GroupProfileMapper">
+
+    <insert id="upsertProfile">
+        INSERT INTO group_profile (platform, bot_id, group_id, active_hours, vibe_baseline,
+                                   topic_dist, active_members)
+        VALUES (#{platform}, #{botId}, #{groupId}, #{activeHours}, #{vibeBaseline},
+                #{topicDist}, #{activeMembers}) ON DUPLICATE KEY
+        UPDATE active_hours = COALESCE (VALUES (active_hours), active_hours),
+            vibe_baseline = COALESCE (VALUES (vibe_baseline), vibe_baseline),
+            topic_dist = COALESCE (VALUES (topic_dist), topic_dist),
+            active_members = COALESCE (VALUES (active_members), active_members)
+    </insert>
+
+    <select id="selectByGroup" resultType="cn.edu.scut.chatbot.memory.profile.GroupProfileDO">
+        SELECT id,
+               platform,
+               bot_id         AS botId,
+               group_id       AS groupId,
+               active_hours   AS activeHours,
+               vibe_baseline  AS vibeBaseline,
+               topic_dist     AS topicDist,
+               active_members AS activeMembers,
+               updated_at     AS updatedAt
+        FROM group_profile
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+    </select>
+
+</mapper>

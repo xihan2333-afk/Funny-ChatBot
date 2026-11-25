@@ -1,5 +1,6 @@
 package cn.edu.scut.chatbot.context.compaction;
 
+import cn.edu.scut.chatbot.bootstrap.GroupKey;
 import cn.edu.scut.chatbot.bootstrap.IdGenerator;
 import cn.edu.scut.chatbot.engine.session.AgentSessionDO;
 import cn.edu.scut.chatbot.engine.session.AgentSessionMapper;
@@ -8,9 +9,11 @@ import cn.edu.scut.chatbot.loop.message.AgentMessage;
 import cn.edu.scut.chatbot.loop.message.AssistantMessage;
 import cn.edu.scut.chatbot.loop.message.SummaryEntry;
 import cn.edu.scut.chatbot.loop.message.ToolResultMessage;
+import cn.edu.scut.chatbot.memory.sediment.SedimentJobWriter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.util.ArrayList;
@@ -22,6 +25,10 @@ import java.util.List;
  * 切点选择不悬挂工具对（assistant 工具调用段与配对 toolResult 必须同进同出压缩区）；
  * 社交事实五段摘要模板 + 增量合并（旧摘要 + 新段合并为新摘要条目）；
  * 摘要条目追加转录 + summary_entry_id 指针更新；摘要区只投最新一段。
+ *
+ * <p>004 R1：压缩三写（摘要条目 / 指针 / 水位档）+ 沉淀工单落库收进同一事务
+ * （{@code @Transactional}）——「压缩成功必有工单」是结构保证不靠事件；
+ * SedimentSuggestionEvent 降级为 worker 即时唤醒信号（正确性不依赖、丢失由每日兜底兜住）。
  *
  * <p>摘要由模板拼装（真实现归 2.3 小模型——本 feature 用确定性拼装，剧本纪律：
  * 压缩机制本身是被测对象，摘要质量归模型侧）。
@@ -42,26 +49,37 @@ public class TranscriptCompactor {
     private final Clock clock;
     private final org.springframework.context.ApplicationEventPublisher eventPublisher;
     private final SummaryGenerator summaryGenerator;
+    private final SedimentJobWriter sedimentJobWriter;
+    private final cn.edu.scut.chatbot.memory.social.GroupStateService groupStateService;
+    private final cn.edu.scut.chatbot.memory.social.TopicLifecycleService topicLifecycleService;
 
     public TranscriptCompactor(SessionManager sessionManager,
                                AgentSessionMapper sessionMapper,
                                IdGenerator idGenerator,
                                Clock clock,
                                org.springframework.context.ApplicationEventPublisher eventPublisher,
-                               SummaryGenerator summaryGenerator) {
+                               SummaryGenerator summaryGenerator,
+                               SedimentJobWriter sedimentJobWriter,
+                               cn.edu.scut.chatbot.memory.social.GroupStateService groupStateService,
+                               cn.edu.scut.chatbot.memory.social.TopicLifecycleService topicLifecycleService) {
         this.sessionManager = sessionManager;
         this.sessionMapper = sessionMapper;
         this.idGenerator = idGenerator;
         this.clock = clock;
         this.eventPublisher = eventPublisher;
         this.summaryGenerator = summaryGenerator;
+        this.sedimentJobWriter = sedimentJobWriter;
+        this.groupStateService = groupStateService;
+        this.topicLifecycleService = topicLifecycleService;
     }
 
     /**
      * 压缩一次会话（预防性通道；应急通道由 Run 侧以相同入口重试驱动）。
+     * 事务边界覆盖摘要三写 + 沉淀工单落库——要么都在要么都不在（R1）。
      *
      * @return 新摘要条目（已追加转录并更新指针）；无需压缩返回 null
      */
+    @Transactional
     public SummaryEntry compactIfNeeded(AgentSessionDO session, int estimatedTokens,
                                         int triggerLineTokens) {
         if (estimatedTokens <= triggerLineTokens) {
@@ -103,14 +121,65 @@ public class TranscriptCompactor {
         // 水位降档：持续高水位压缩后降到 quiet 落库（投影读 session 档位——多群各持各档；
         // 活跃群回 active 由群状态互动驱动，2.4 演进）
         sessionMapper.updateWindowLevel(session.getId(), AgentSessionDO.WINDOW_QUIET);
+
+        // 同事务落沉淀工单（R1：「压缩成功必有工单」的结构保证——幂等键 = summaryEntryId，
+        // 摘要与工单要么都在要么都不在）
+        sedimentJobWriter.submitOnCompaction(
+                new GroupKey(session.getPlatform(), session.getBotId(), session.getGroupId()),
+                Long.parseUnsignedLong(newSummary.messageId()),
+                new SedimentJobWriter.TranscriptRange(
+                        Long.parseUnsignedLong(compacting.get(0).messageId()),
+                        Long.parseUnsignedLong(compacting.get(compacting.size() - 1).messageId())));
+
         log.info("会话压缩完成 sessionId={} 压缩 {} 条为新摘要，窗口降档 quiet",
                 session.getId(), compacting.size());
 
-        // 沉淀提示事件（2.2 发、2.4 消费——是否沉淀是记忆系统的自由）
+        // 沉淀提示事件（唤醒信号——正确性由事务内工单承担，丢失由每日兜底兜住）
         eventPublisher.publishEvent(new SedimentSuggestionEvent(
                 session.getPlatform(), session.getBotId(), session.getGroupId(),
                 newSummary.messageId(), compacting.size()));
+
+        // 群状态与话题刷新（US8）：复用摘要产物零模型成本——氛围段进群状态、
+        // 话题段驱动话题状态机（hot 未现 → 冷却计次）
+        GroupKey groupKey = new GroupKey(
+                session.getPlatform(), session.getBotId(), session.getGroupId());
+        groupStateService.onCompactionRefreshed(groupKey,
+                summarySection(summaryText, "主要话题"), summarySection(summaryText, "情绪氛围"));
+        topicLifecycleService.onCompactionRefreshed(groupKey,
+                splitTopics(summarySection(summaryText, "主要话题")));
         return newSummary;
+    }
+
+    /**
+     * 摘要五段结构的段文本提取（"主要话题：xxx" 行——确定性拼装与模型摘要共用行前缀形态）
+     */
+    private String summarySection(String summaryText, String sectionTitle) {
+        String prefix = sectionTitle + "：";
+        for (String line : summaryText.split("\n")) {
+            String trimmed = line.trim();
+            if (trimmed.startsWith(prefix)) {
+                String content = trimmed.substring(prefix.length()).trim();
+                return content.isEmpty() ? null : content;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 话题段切分为话题列表（确定性拼装以「；」连接——同符号切分；单元素形态原样保留）
+     */
+    private List<String> splitTopics(String topicSection) {
+        if (topicSection == null || topicSection.isBlank()) {
+            return List.of();
+        }
+        List<String> topics = new ArrayList<>();
+        for (String piece : topicSection.split("[；;]")) {
+            String trimmed = piece.trim();
+            if (!trimmed.isEmpty()) {
+                topics.add(trimmed);
+            }
+        }
+        return topics;
     }
 
     /**

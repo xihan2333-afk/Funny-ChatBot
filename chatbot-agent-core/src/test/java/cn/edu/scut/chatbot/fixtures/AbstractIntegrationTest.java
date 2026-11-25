@@ -12,8 +12,6 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.nio.file.Path;
 
-import static org.awaitility.Awaitility.await;
-
 /**
  * agent-core 集成测试基类（宪法第七条分层纪律）：Testcontainers 起 MySQL 8 / Redis 7 真容器
  * （禁 H2 / 内嵌 Redis 替身——uk_dedup 拒插幂等、ON DUPLICATE KEY 合并、pending 重投这些
@@ -50,9 +48,18 @@ public abstract class AbstractIntegrationTest {
             .withExposedPorts(6379)
             .withCommand("--appendonly yes");
 
+    /**
+     * Qdrant 向量库真容器（004 记忆双存储：MySQL 事实源 + Qdrant 派生索引——
+     * 禁内存替身，近邻过滤与 payload 索引行为藏在真 Qdrant 里）。
+     * 测试机镜像经 mirror 前缀拉取后 retag 为 qdrant/qdrant（quickstart 前置条件 2）。
+     */
+    private static final GenericContainer<?> QDRANT = new GenericContainer<>(DockerImageName.parse("qdrant/qdrant"))
+            .withExposedPorts(6333);
+
     static {
         MYSQL.start();
         REDIS.start();
+        QDRANT.start();
     }
 
     /**
@@ -71,6 +78,7 @@ public abstract class AbstractIntegrationTest {
         registry.add("spring.datasource.password", MYSQL::getPassword);
         registry.add("spring.redis.host", REDIS::getHost);
         registry.add("spring.redis.port", () -> REDIS.getMappedPort(6379));
+        registry.add("qdrant.base-url", AbstractIntegrationTest::qdrantBaseUrl);
         registry.add("agent.stream.in-key", () -> IN_STREAM_KEY);
         registry.add("agent.stream.out-key", () -> OUT_STREAM_KEY);
     }
@@ -85,5 +93,16 @@ public abstract class AbstractIntegrationTest {
 
     protected static GenericContainer<?> redis() {
         return REDIS;
+    }
+
+    protected static GenericContainer<?> qdrant() {
+        return QDRANT;
+    }
+
+    /**
+     * Qdrant REST 根地址（容器随机端口映射后的直连形态）
+     */
+    protected static String qdrantBaseUrl() {
+        return "http://" + QDRANT.getHost() + ":" + QDRANT.getMappedPort(6333);
     }
 }

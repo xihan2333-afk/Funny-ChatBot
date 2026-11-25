@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.memory.sediment.SedimentJobMapper">
+
+    <insert id="insertJob">
+        INSERT INTO sediment_job (platform, bot_id, group_id, trigger_kind, idempotent_key,
+                                  payload, status, retry_count)
+        VALUES (#{platform}, #{botId}, #{groupId}, #{triggerKind}, #{idempotentKey},
+                #{payload}, #{status}, #{retryCount})
+    </insert>
+
+    <select id="selectById" resultType="cn.edu.scut.chatbot.memory.sediment.SedimentJobDO">
+        SELECT id,
+               platform,
+               bot_id         AS botId,
+               group_id       AS groupId,
+               trigger_kind   AS triggerKind,
+               idempotent_key AS idempotentKey,
+               payload,
+               status,
+               retry_count    AS retryCount,
+               output_ref     AS outputRef,
+               created_at     AS createdAt,
+               updated_at     AS updatedAt
+        FROM sediment_job
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectClaimable" resultType="cn.edu.scut.chatbot.memory.sediment.SedimentJobDO">
+        SELECT id,
+               platform,
+               bot_id         AS botId,
+               group_id       AS groupId,
+               trigger_kind   AS triggerKind,
+               idempotent_key AS idempotentKey,
+               payload,
+               status,
+               retry_count    AS retryCount,
+               output_ref     AS outputRef,
+               created_at     AS createdAt,
+               updated_at     AS updatedAt
+        FROM sediment_job
+        WHERE status = 'pending'
+           OR (status = 'failed' AND retry_count &lt; #{retryMax})
+        ORDER BY id
+            LIMIT #{limit}
+    </select>
+
+    <update id="claimJob">
+        UPDATE sediment_job
+        SET status = 'processing'
+        WHERE id = #{id}
+          AND (status = 'pending' OR (status = 'failed' AND retry_count &lt; #{retryMax}))
+    </update>
+
+    <update id="markDone">
+        UPDATE sediment_job
+        SET status     = 'done',
+            output_ref = #{outputRef}
+        WHERE id = #{id}
+    </update>
+
+    <update id="markFailed">
+        UPDATE sediment_job
+        SET status      = 'failed',
+            retry_count = retry_count + 1
+        WHERE id = #{id}
+    </update>
+
+    <update id="resetStaleProcessing">
+        UPDATE sediment_job
+        SET status = 'pending'
+        WHERE id = #{id}
+          AND status = 'processing'
+          AND updated_at &lt; #{timeoutBefore}
+    </update>
+
+    <select id="selectStaleProcessing" resultType="cn.edu.scut.chatbot.memory.sediment.SedimentJobDO">
+        SELECT id,
+               platform,
+               bot_id         AS botId,
+               group_id       AS groupId,
+               trigger_kind   AS triggerKind,
+               idempotent_key AS idempotentKey,
+               payload,
+               status,
+               retry_count    AS retryCount,
+               output_ref     AS outputRef,
+               created_at     AS createdAt,
+               updated_at     AS updatedAt
+        FROM sediment_job
+        WHERE status = 'processing'
+          AND updated_at &lt; #{timeoutBefore}
+        ORDER BY id
+            LIMIT #{limit}
+    </select>
+
+    <select id="selectFailedTerminal" resultType="cn.edu.scut.chatbot.memory.sediment.SedimentJobDO">
+        SELECT id,
+               platform,
+               bot_id         AS botId,
+               group_id       AS groupId,
+               trigger_kind   AS triggerKind,
+               idempotent_key AS idempotentKey,
+               payload,
+               status,
+               retry_count    AS retryCount,
+               output_ref     AS outputRef,
+               created_at     AS createdAt,
+               updated_at     AS updatedAt
+        FROM sediment_job
+        WHERE status = 'failed'
+          AND retry_count &gt;= #{retryMax}
+        ORDER BY id
+            LIMIT #{limit}
+    </select>
+
+    <update id="resetForManualRetry">
+        UPDATE sediment_job
+        SET status      = 'pending',
+            retry_count = 0
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteDoneBefore">
+        DELETE
+        FROM sediment_job
+        WHERE status = 'done'
+          AND updated_at &lt; #{cutoff} LIMIT #{limit}
+    </delete>
+
+    <select id="selectByGroup" resultType="cn.edu.scut.chatbot.memory.sediment.SedimentJobDO">
+        SELECT id,
+               platform,
+               bot_id         AS botId,
+               group_id       AS groupId,
+               trigger_kind   AS triggerKind,
+               idempotent_key AS idempotentKey,
+               payload,
+               status,
+               retry_count    AS retryCount,
+               output_ref     AS outputRef,
+               created_at     AS createdAt,
+               updated_at     AS updatedAt
+        FROM sediment_job
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+        ORDER BY id
+    </select>
+
+</mapper>
