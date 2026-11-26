@@ -93,7 +93,7 @@ class EventBridgeSpanTranslatorTest extends Specification {
                 "qq", "10000", "80001", 77L, 9L, "accept", "被 @提及", "L0", TRACEPARENT))
         translator.onEvent(LoopEvent.RunEvent.started(100L, RunConfig.ExecutionForm.TURN,
                 new RunConfig.VersionKeys(3L, 2L, 1L),
-                new LoopEvent.RunIdentity("qq", "10000", "80001", 9L, null)))
+                new LoopEvent.RunIdentity("qq", "10000", "80001", 9L, null), false))
         translator.onEvent(new LoopEvent.TurnEvent(100L, LoopEvent.Phase.START, 0))
         translator.onEvent(LoopEvent.MessageEvent.completed(100L, "m-1",
                 new LoopEvent.UsageSummary("glm-4.6", "chat_main", "zai",
@@ -157,7 +157,7 @@ class EventBridgeSpanTranslatorTest extends Specification {
         translator.onEvent(new EngineEvent.DecisionMade(
                 "qq", "10000", "80001", 77L, 9L, "accept", "被 @提及", "L0", TRACEPARENT))
         translator.onEvent(LoopEvent.RunEvent.started(101L, RunConfig.ExecutionForm.TURN, null,
-                new LoopEvent.RunIdentity("qq", "10000", "80001", 9L, null)))
+                new LoopEvent.RunIdentity("qq", "10000", "80001", 9L, null), false))
 
         when:
         translator.onEvent(LoopEvent.MessageEvent.failed(101L,

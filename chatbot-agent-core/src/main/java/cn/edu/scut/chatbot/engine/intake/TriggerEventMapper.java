@@ -70,6 +70,11 @@ public interface TriggerEventMapper {
     TriggerEventDO selectById(@Param("id") long id);
 
     /**
+     * 某归属 Turn 的全部触发器（评估轨迹组装：决策留档 + traceContext 取 traceId）
+     */
+    List<TriggerEventDO> selectByTurn(@Param("turnId") long turnId);
+
+    /**
      * 该群最旧未交付的任务结论事件（generation Effect 指针驱动：delivery 路径；
      * turn_id 为 NULL 表示尚未交付，交付完成后回填 -1 标记）
      */

@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.observability.flywheel.ImprovementProposalMapper">
+
+    <select id="selectByDedupKey" resultType="cn.edu.scut.chatbot.observability.flywheel.ImprovementProposalDO">
+        SELECT id,
+               source_kind  AS sourceKind,
+               problem_card AS problemCard,
+               target,
+               status,
+               attribution,
+               dedup_key    AS dedupKey,
+               review_note  AS reviewNote,
+               created_at   AS createdAt,
+               updated_at   AS updatedAt
+        FROM improvement_proposal
+        WHERE dedup_key = #{dedupKey}
+    </select>
+
+    <insert id="insert">
+        INSERT INTO improvement_proposal (id, source_kind, problem_card, target, status,
+                                          attribution, dedup_key, review_note)
+        VALUES (#{id}, #{sourceKind}, #{problemCard}, #{target}, #{status},
+                #{attribution}, #{dedupKey}, #{reviewNote})
+    </insert>
+
+    <select id="selectById" resultType="cn.edu.scut.chatbot.observability.flywheel.ImprovementProposalDO">
+        SELECT id,
+               source_kind  AS sourceKind,
+               problem_card AS problemCard,
+               target,
+               status,
+               attribution,
+               dedup_key    AS dedupKey,
+               review_note  AS reviewNote,
+               created_at   AS createdAt,
+               updated_at   AS updatedAt
+        FROM improvement_proposal
+        WHERE id = #{id}
+    </select>
+
+    <update id="updateAttribution">
+        UPDATE improvement_proposal
+        SET status      = #{status},
+            attribution = #{attribution}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE improvement_proposal
+        SET status      = #{status},
+            review_note = #{reviewNote}
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectByFilter" resultType="cn.edu.scut.chatbot.observability.flywheel.ImprovementProposalDO">
+        SELECT id,
+        source_kind AS sourceKind,
+        problem_card AS problemCard,
+        target,
+        status,
+        attribution,
+        dedup_key AS dedupKey,
+        review_note AS reviewNote,
+        created_at AS createdAt,
+        updated_at AS updatedAt
+        FROM improvement_proposal
+        <where>
+            <if test="status != null and status != ''">
+                AND status = #{status}
+            </if>
+        </where>
+        ORDER BY id DESC
+        LIMIT #{size} OFFSET #{offset}
+    </select>
+
+</mapper>

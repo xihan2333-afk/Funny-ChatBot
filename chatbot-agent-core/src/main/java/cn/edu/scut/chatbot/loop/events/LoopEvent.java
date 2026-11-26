@@ -49,20 +49,24 @@ public sealed interface LoopEvent permits
             List<String> speechOutboxIds,
             String silentReason,
             RunConfig.VersionKeys versionKeys,
-            RunIdentity identity
+            RunIdentity identity,
+            boolean replay
     ) implements LoopEvent {
 
         /**
          * START 携带群身份（观测桥把 run 及其子 Span 的 chatbot.group.* / turn_id /
-         * task_id 公共属性挂上——翻译表「公共属性取自事件上下文」的唯一来源）
+         * task_id 公共属性挂上——翻译表「公共属性取自事件上下文」的唯一来源）；
+         * replay 标记随 START 供 run Span 挂 chatbot.replay（T055 记账贯通）
          */
         public static RunEvent started(long runId, RunConfig.ExecutionForm form,
-                                       RunConfig.VersionKeys versionKeys, RunIdentity identity) {
-            return new RunEvent(runId, Phase.START, form, null, List.of(), null, versionKeys, identity);
+                                       RunConfig.VersionKeys versionKeys, RunIdentity identity,
+                                       boolean replay) {
+            return new RunEvent(runId, Phase.START, form, null, List.of(), null, versionKeys,
+                    identity, replay);
         }
 
         public static RunEvent ended(long runId, String stopReason, List<String> speechOutboxIds, String silentReason) {
-            return new RunEvent(runId, Phase.END, null, stopReason, speechOutboxIds, silentReason, null, null);
+            return new RunEvent(runId, Phase.END, null, stopReason, speechOutboxIds, silentReason, null, null, false);
         }
 
         @Override

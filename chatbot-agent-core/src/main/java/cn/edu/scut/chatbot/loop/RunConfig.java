@@ -21,7 +21,8 @@ public record RunConfig(
         int maxTurns,
         Duration timeBudget,
         long stallTimeoutMillis,
-        VersionKeys versionKeys
+        VersionKeys versionKeys,
+        boolean replay
 ) {
 
     /**
@@ -55,21 +56,29 @@ public record RunConfig(
     }
 
     public static RunConfig turnDefaults() {
-        return new RunConfig(ExecutionForm.TURN, 3, Duration.ofSeconds(60), 15_000, null);
+        return new RunConfig(ExecutionForm.TURN, 3, Duration.ofSeconds(60), 15_000, null, false);
     }
 
     public static RunConfig lightTaskDefaults() {
-        return new RunConfig(ExecutionForm.LIGHT_TASK, 5, Duration.ofSeconds(120), 15_000, null);
+        return new RunConfig(ExecutionForm.LIGHT_TASK, 5, Duration.ofSeconds(120), 15_000, null, false);
     }
 
     public static RunConfig workerDefaults() {
-        return new RunConfig(ExecutionForm.WORKER, 40, Duration.ofMinutes(10), 30_000, null);
+        return new RunConfig(ExecutionForm.WORKER, 40, Duration.ofMinutes(10), 30_000, null, false);
     }
 
     /**
      * 组装期填入版本三键（engine 侧在 RunSpec 组装点调用——观测代码零侵入 loop 内核）
      */
     public RunConfig withVersionKeys(VersionKeys keys) {
-        return new RunConfig(form, maxTurns, timeBudget, stallTimeoutMillis, keys);
+        return new RunConfig(form, maxTurns, timeBudget, stallTimeoutMillis, keys, replay);
+    }
+
+    /**
+     * 重放标记（T055 记账贯通）：dry-run 重放的 Run 置 true——落账 is_replay=1 与
+     * run Span chatbot.replay=true 的纯值来源；线上 Run 一律 false（缺省）
+     */
+    public RunConfig withReplay(boolean replayFlag) {
+        return new RunConfig(form, maxTurns, timeBudget, stallTimeoutMillis, versionKeys, replayFlag);
     }
 }

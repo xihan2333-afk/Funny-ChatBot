@@ -146,4 +146,11 @@
         ORDER BY occurred_at ASC
     </select>
 
+    <delete id="deleteReplayTransient">
+        DELETE
+        FROM transcript_entry
+        WHERE session_id = #{sessionId}
+          AND run_id IS NOT NULL
+    </delete>
+
 </mapper>

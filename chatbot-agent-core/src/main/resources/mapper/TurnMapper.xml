@@ -149,4 +149,47 @@
         <if test="to != null">AND accepted_at &lt;= #{to}</if>
     </select>
 
+    <select id="selectTerminalByGroupWindow" resultType="cn.edu.scut.chatbot.engine.turn.TurnDO">
+        SELECT id,
+               platform,
+               bot_id        AS botId,
+               group_id      AS groupId,
+               status,
+               trigger_ids   AS triggerIds,
+               outbox_ids    AS outboxIds,
+               silent_reason AS silentReason,
+               error_code    AS errorCode,
+               accepted_at   AS acceptedAt,
+               finished_at   AS finishedAt
+        FROM turn
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+          AND status IN ('SETTLED', 'SILENT', 'FAILED', 'DROPPED')
+          AND accepted_at &gt;= #{from}
+          AND accepted_at &lt; #{to}
+        ORDER BY accepted_at DESC
+            LIMIT #{limit}
+    </select>
+
+    <select id="selectFailedBetween" resultType="cn.edu.scut.chatbot.engine.turn.TurnDO">
+        SELECT id,
+               platform,
+               bot_id        AS botId,
+               group_id      AS groupId,
+               status,
+               trigger_ids   AS triggerIds,
+               outbox_ids    AS outboxIds,
+               silent_reason AS silentReason,
+               error_code    AS errorCode,
+               accepted_at   AS acceptedAt,
+               finished_at   AS finishedAt
+        FROM turn
+        WHERE status = 'FAILED'
+          AND accepted_at &gt;= #{from}
+          AND accepted_at &lt; #{to}
+        ORDER BY accepted_at DESC
+            LIMIT #{limit}
+    </select>
+
 </mapper>

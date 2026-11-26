@@ -117,6 +117,29 @@
         </foreach>
     </select>
 
+    <select id="selectByTurn" resultType="cn.edu.scut.chatbot.engine.intake.TriggerEventDO">
+        SELECT id,
+               platform,
+               bot_id          AS botId,
+               group_id        AS groupId,
+               trigger_kind    AS triggerKind,
+               event_type      AS eventType,
+               dedup_key       AS dedupKey,
+               digest,
+               source_ref      AS sourceRef,
+               decision,
+               decision_layer  AS decisionLayer,
+               decision_reason AS decisionReason,
+               batch_digest    AS batchDigest,
+               turn_id         AS turnId,
+               occurred_at     AS occurredAt,
+               decided_at      AS decidedAt,
+               trace_context   AS traceContext
+        FROM trigger_event
+        WHERE turn_id = #{turnId}
+        ORDER BY id
+    </select>
+
     <select id="selectById" resultType="cn.edu.scut.chatbot.engine.intake.TriggerEventDO">
         SELECT id,
                platform,

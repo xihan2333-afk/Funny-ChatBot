@@ -91,4 +91,56 @@
         <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
     </select>
 
+    <select id="selectMaxIdByRunKind" resultType="java.lang.Long">
+        SELECT MAX(id)
+        FROM llm_call_log
+        WHERE run_kind = #{runKind}
+    </select>
+
+    <select id="selectMaxReplayId" resultType="java.lang.Long">
+        SELECT MAX(id)
+        FROM llm_call_log
+        WHERE is_replay = 1
+    </select>
+
+    <select id="selectReplayTotalsSinceId" resultType="cn.edu.scut.chatbot.llm.slot.LlmCallLogAggregation">
+        SELECT COUNT(*)                        AS calls,
+               COALESCE(SUM(input_tokens), 0)  AS inputTokens,
+               COALESCE(SUM(output_tokens), 0) AS outputTokens,
+               COALESCE(SUM(cached_tokens), 0) AS cachedTokens,
+               COALESCE(SUM(cost_amount), 0)   AS costAmount
+        FROM llm_call_log
+        WHERE is_replay = 1
+          AND id &gt; #{sinceId}
+    </select>
+
+    <select id="selectTotalsByRunKindSinceId" resultType="cn.edu.scut.chatbot.llm.slot.LlmCallLogAggregation">
+        SELECT COUNT(*)                        AS calls,
+               COALESCE(SUM(input_tokens), 0)  AS inputTokens,
+               COALESCE(SUM(output_tokens), 0) AS outputTokens,
+               COALESCE(SUM(cached_tokens), 0) AS cachedTokens,
+               COALESCE(SUM(cost_amount), 0)   AS costAmount
+        FROM llm_call_log
+        WHERE run_kind = #{runKind}
+          AND id &gt; #{sinceId}
+    </select>
+
+    <select id="selectTopCostRuns" resultType="cn.edu.scut.chatbot.llm.slot.LlmCallLogAggregation">
+        SELECT run_id                          AS dimensionKey,
+               COUNT(*)                        AS calls,
+               COALESCE(SUM(input_tokens), 0)  AS inputTokens,
+               COALESCE(SUM(output_tokens), 0) AS outputTokens,
+               COALESCE(SUM(cached_tokens), 0) AS cachedTokens,
+               COALESCE(SUM(cost_amount), 0)   AS costAmount
+        FROM llm_call_log
+        WHERE is_replay = 0
+          AND run_id IS NOT NULL
+          AND created_at &gt;= #{from}
+          AND created_at &lt; #{to}
+        GROUP BY run_id
+        HAVING COALESCE(SUM(cost_amount), 0) &gt; #{minCost}
+        ORDER BY costAmount DESC
+            LIMIT #{limit}
+    </select>
+
 </mapper>

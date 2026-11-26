@@ -69,4 +69,11 @@ public interface AgentSessionMapper {
     List<TranscriptKindTime> selectTranscriptKindTimes(@Param("from") java.time.LocalDateTime from,
                                                        @Param("to") java.time.LocalDateTime to,
                                                        @Param("groupId") String groupId);
+
+    /**
+     * 删除该会话的重放临时转录（dry-run Pass@k 每次执行前清场：前情种子经
+     * appendTranscript(runId=null) 落库——run_id 为空的保留；上次重放 Run 落库的
+     * 发言与工具结果清空，k 次执行彼此独立）
+     */
+    int deleteReplayTransient(@Param("sessionId") long sessionId);
 }

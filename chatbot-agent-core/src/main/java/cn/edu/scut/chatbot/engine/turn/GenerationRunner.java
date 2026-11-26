@@ -431,10 +431,11 @@ public class GenerationRunner {
                         .beforeToolCall(toolCallGuard.forRun(platform, botId, groupId))
                         .build(),
                 toolsByName(tools),
-                // 落账装饰器：Run 级 meta（run_kind 按执行形态）随 Run 绑定（research R8）
+                // 落账装饰器：Run 级 meta（run_kind 按执行形态）随 Run 绑定（research R8）；
+                // replay 标记贯通（T055）：dry-run 重放的 Run 落账 is_replay=1
                 new cn.edu.scut.chatbot.engine.CostAwareStreamFn(streamFn, costRecorder,
                         new cn.edu.scut.chatbot.llm.gateway.LlmCallMeta(platform, botId, groupId,
-                                runId, runKindOf(config), "run-" + runId, false)),
+                                runId, runKindOf(config), "run-" + runId, config.replay())),
                 clock, idGenerator::nextId,
                 (completedRunId, turnMessages) -> {
                     if (config.form() == RunConfig.ExecutionForm.LIGHT_TASK) {

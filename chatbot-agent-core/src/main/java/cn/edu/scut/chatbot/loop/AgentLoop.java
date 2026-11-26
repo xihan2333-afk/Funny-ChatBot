@@ -112,7 +112,7 @@ public class AgentLoop {
 
         emit(spec, LoopEvent.RunEvent.started(spec.runId(), config.form(), config.versionKeys(),
                 new LoopEvent.RunIdentity(spec.platform(), spec.botId(), spec.groupId(),
-                        spec.turnId(), spec.taskId())));
+                        spec.turnId(), spec.taskId()), config.replay()));
 
         AgentContext context = spec.context();
         String stopReason = RunOutcome.STOP_BUDGET_EXCEEDED;

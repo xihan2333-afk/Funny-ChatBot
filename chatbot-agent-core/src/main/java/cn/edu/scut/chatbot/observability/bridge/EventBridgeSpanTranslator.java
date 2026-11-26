@@ -61,6 +61,7 @@ public class EventBridgeSpanTranslator implements EngineEventListener, LoopEvent
     static final String A_STOP_REASON = "chatbot.stop_reason";
     static final String A_SILENT_REASON = "chatbot.silent_reason";
     static final String A_TURN_INDEX = "chatbot.turn_index";
+    static final String A_REPLAY = "chatbot.replay";
     static final String A_SLOT = "chatbot.slot";
     static final String A_TTFT_MS = "chatbot.ttft_ms";
     static final String A_ERROR_CODE = "chatbot.error_code";
@@ -371,6 +372,10 @@ public class EventBridgeSpanTranslator implements EngineEventListener, LoopEvent
             run.setAttribute(A_VERSION_PROMPT_FRAGMENT, event.versionKeys().promptFragment());
             run.setAttribute(A_VERSION_PERSONA, event.versionKeys().persona());
             run.setAttribute(A_VERSION_SLOT_BINDING, event.versionKeys().slotBinding());
+        }
+        // dry-run 重放标记（T055 记账贯通）：报表按 chatbot.replay 区分线上与重放
+        if (event.replay()) {
+            run.setAttribute(A_REPLAY, true);
         }
         RunState state = new RunState(run, identity);
         runs.put(event.runId(), state);

@@ -81,4 +81,21 @@ public interface TurnMapper {
     long countByErrorCodePrefix(@Param("errorCodePrefix") String errorCodePrefix,
                                 @Param("from") LocalDateTime from,
                                 @Param("to") LocalDateTime to);
+
+    /**
+     * 窗口内该群终态 Turn（评估每日抽样与手动圈选的样本来源，最近优先）
+     */
+    List<TurnDO> selectTerminalByGroupWindow(@Param("platform") String platform,
+                                             @Param("botId") String botId,
+                                             @Param("groupId") String groupId,
+                                             @Param("from") LocalDateTime from,
+                                             @Param("to") LocalDateTime to,
+                                             @Param("limit") int limit);
+
+    /**
+     * 窗口内 FAILED Turn（经验挖掘三类信号之一，最近优先）
+     */
+    List<TurnDO> selectFailedBetween(@Param("from") LocalDateTime from,
+                                     @Param("to") LocalDateTime to,
+                                     @Param("limit") int limit);
 }

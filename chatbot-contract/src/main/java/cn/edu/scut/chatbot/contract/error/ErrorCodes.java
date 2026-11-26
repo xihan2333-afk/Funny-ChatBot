@@ -86,6 +86,16 @@ public final class ErrorCodes {
      */
     public static final String OBSERVE_QUERY_UNAVAILABLE = "observe.query_unavailable";
 
+    /**
+     * 评估批次并发已达上限（observe.replay.maxConcurrent）——手动圈选被拒，稍后重试
+     */
+    public static final String OBSERVE_EVAL_BUSY = "observe.eval_busy";
+
+    /**
+     * 评估域输入或模型输出非法（场景卡初稿不合结构等）——明确不可重试
+     */
+    public static final String OBSERVE_EVAL_INVALID = "observe.eval_invalid";
+
     // ===== security（安全域，005-observability-safety） =====
     /**
      * 出站内容被词库拦截（block 级命中）——isError 工具结果 + 终止循环 + Outbox 零写入
