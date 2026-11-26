@@ -7,6 +7,8 @@ import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchRule;
 import org.junit.jupiter.api.Test;
 
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAnyPackage;
+import static com.tngtech.archunit.core.domain.JavaClass.Predicates.simpleNameEndingWith;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 /**
@@ -79,5 +81,32 @@ class ArchitectureRulesTest {
 
         notIntoEngine.check(classes);
         notIntoTool.check(classes);
+    }
+
+    /**
+     * 守护纪律：management 收口（宪法第五条）；005 起观测安全域（observability / security）
+     * 的 DO 与 Mapper 同样不得被管理面触达——数据面只经领域门面。
+     *
+     * <p>说明：observability → engine / loop / llm 是本 feature 的合法消费边
+     * （事件桥消费事件、ES 查询读事实源），不新增被规约边；loop 不依赖
+     * observability / security 已由内核纯净规则覆盖（该规则禁依赖清单含两包）。
+     */
+    @Test
+    void management包不触达观测安全域的DO与Mapper_数据面收口() {
+        JavaClasses classes = new ClassFileImporter()
+                .withImportOption(new ImportOption.DoNotIncludeTests())
+                .importPackages("cn.edu.scut.chatbot");
+
+        ArchRule notIntoDoOrMapper = noClasses()
+                .that().resideInAPackage("..chatbot.management..")
+                .should().dependOnClassesThat(
+                        resideInAnyPackage("..chatbot.observability..", "..chatbot.security..")
+                                .and(simpleNameEndingWith("DO").or(simpleNameEndingWith("Mapper"))))
+                .allowEmptyShould(true)
+                .because("management 只调用领域门面接口（observe-query / eval-and-flywheel / "
+                        + "security-gate / admin-auth 契约），不得触达 DO / Mapper——"
+                        + "管理平台不得持有第二条写状态通道");
+
+        notIntoDoOrMapper.check(classes);
     }
 }

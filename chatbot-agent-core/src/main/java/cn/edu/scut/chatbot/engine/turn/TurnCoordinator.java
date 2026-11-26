@@ -1,22 +1,26 @@
 package cn.edu.scut.chatbot.engine.turn;
 
-import cn.edu.scut.chatbot.exception.CommandRejectedException;
 import cn.edu.scut.chatbot.bootstrap.IdGenerator;
 import cn.edu.scut.chatbot.bootstrap.SystemParamService;
 import cn.edu.scut.chatbot.engine.effect.EffectsQueueDO;
 import cn.edu.scut.chatbot.engine.effect.EffectsQueueMapper;
+import cn.edu.scut.chatbot.engine.events.EngineEventPublisher;
 import cn.edu.scut.chatbot.engine.intake.TriggerEventDO;
 import cn.edu.scut.chatbot.engine.intake.TriggerEventMapper;
 import cn.edu.scut.chatbot.engine.outbox.OutboxMapper;
 import cn.edu.scut.chatbot.engine.outbox.OutboxWriter;
+import cn.edu.scut.chatbot.exception.CommandRejectedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
+
+import static cn.edu.scut.chatbot.engine.events.EngineEvent.TurnTransitioned;
 
 /**
  * Turn 协调器（spec US3）：Turn 状态机唯一写入者。单飞排队、重驱 Outbox 查重
@@ -44,6 +48,17 @@ public class TurnCoordinator {
     private final SystemParamService systemParamService;
     private final Clock clock;
 
+    /**
+     * 引擎事件发布器（Turn 状态机迁移发射——观测桥的闭合注册表凭 turn:{turnId} 定位
+     * 在途 turn Span）。setter 注入可选装配：未装配时零开销，测试构造不受扰。
+     */
+    private EngineEventPublisher engineEvents;
+
+    @Autowired(required = false)
+    void setEngineEventPublisher(EngineEventPublisher publisher) {
+        this.engineEvents = publisher;
+    }
+
     public TurnCoordinator(TurnMapper turnMapper,
                            TriggerEventMapper triggerEventMapper,
                            OutboxMapper outboxMapper,
@@ -60,6 +75,15 @@ public class TurnCoordinator {
         this.idGenerator = idGenerator;
         this.systemParamService = systemParamService;
         this.clock = clock;
+    }
+
+    private void emitTurnTransitioned(TurnDO turn, String from, String to,
+                                      List<String> speechOutboxIds) {
+        if (engineEvents != null) {
+            engineEvents.publish(new TurnTransitioned(
+                    turn.getPlatform(), turn.getBotId(), turn.getGroupId(),
+                    turn.getId(), from, to, speechOutboxIds));
+        }
     }
 
     /**
@@ -96,6 +120,7 @@ public class TurnCoordinator {
         turn.setAcceptedAt(LocalDateTime.now(clock));
         turnMapper.insertTurn(turn);
         triggerEventMapper.updateTurnId(triggerId, turnId);
+        emitTurnTransitioned(turn, null, TurnStatus.ACCEPTED.name(), List.of());
 
         EffectsQueueDO generation = new EffectsQueueDO();
         generation.setPlatform(platform);
@@ -141,6 +166,7 @@ public class TurnCoordinator {
             if (updated == 0) {
                 log.warn("崩溃恢复推进 SETTLING 影响行数为 0 turnId={}", turnId);
             }
+            emitTurnTransitioned(turn, TurnStatus.ACCEPTED.name(), TurnStatus.SETTLING.name(), List.of());
             outboxWriter.advanceTurnSettlement(turnId);
             return true;
         }
@@ -151,6 +177,7 @@ public class TurnCoordinator {
             log.warn("Turn 推进 GENERATING 影响行数为 0（并发推进） turnId={}", turnId);
             return true;
         }
+        emitTurnTransitioned(turn, TurnStatus.ACCEPTED.name(), TurnStatus.GENERATING.name(), List.of());
         return true;
     }
 
@@ -175,12 +202,15 @@ public class TurnCoordinator {
             // 下游否决上游是合法结局：沉默收尾
             turnMapper.advanceStatus(turnId, TurnStatus.GENERATING.name(),
                     TurnStatus.SILENT.name(), LocalDateTime.now(clock), "生成完成全程无发言", null);
+            emitTurnTransitioned(turn, TurnStatus.GENERATING.name(), TurnStatus.SILENT.name(), List.of());
             return;
         }
         turnMapper.appendOutboxIds(turnId, speechOutboxIds.stream()
                 .map(String::valueOf).reduce("[", (a, b) -> a + b + ",").replaceAll(",$", "]"));
         turnMapper.advanceStatus(turnId, TurnStatus.GENERATING.name(),
                 TurnStatus.SETTLING.name(), null, null, null);
+        emitTurnTransitioned(turn, TurnStatus.GENERATING.name(), TurnStatus.SETTLING.name(),
+                speechOutboxIds.stream().map(String::valueOf).toList());
         // SETTLING 进入即查已到回执（回执早于生成结束到达的既有场景）
         outboxWriter.advanceTurnSettlement(turnId);
     }
@@ -190,10 +220,14 @@ public class TurnCoordinator {
      * generation Effect 行已删，重试语义在 GenerationRunner 内部，耗尽即此方法）
      */
     public void generationFailed(long turnId, String errorCode) {
+        TurnDO turn = turnMapper.selectById(turnId);
         int updated = turnMapper.advanceStatus(turnId, TurnStatus.GENERATING.name(),
                 TurnStatus.FAILED.name(), LocalDateTime.now(clock), null, errorCode);
         if (updated == 0) {
             log.warn("Turn 推进 FAILED 影响行数为 0 turnId={}", turnId);
+        }
+        if (turn != null) {
+            emitTurnTransitioned(turn, TurnStatus.GENERATING.name(), TurnStatus.FAILED.name(), List.of());
         }
     }
 
@@ -209,6 +243,7 @@ public class TurnCoordinator {
         current.assertFactTransition(TurnStatus.DROPPED);
         turnMapper.advanceStatus(turnId, turn.getStatus(), TurnStatus.DROPPED.name(),
                 LocalDateTime.now(clock), reason, null);
+        emitTurnTransitioned(turn, turn.getStatus(), TurnStatus.DROPPED.name(), List.of());
     }
 
     /**

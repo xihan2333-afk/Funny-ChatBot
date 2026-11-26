@@ -82,6 +82,12 @@ public class TriggerEventDO {
      */
     private LocalDateTime decidedAt;
 
+    /**
+     * 入事件信封的 W3C traceparent 原文（跨进程接续：gate / turn / outbox 侧凭它把
+     * 后续 Span 挂到接入层同一条 trace 上；内部触发为空）
+     */
+    private String traceContext;
+
     // ===== 字典值常量 =====
     public static final String KIND_EXTERNAL = "external";
     public static final String KIND_INTERNAL = "internal";

@@ -1,8 +1,8 @@
 package cn.edu.scut.chatbot.engine.effect;
 
-import cn.edu.scut.chatbot.exception.NonRetryableException;
 import cn.edu.scut.chatbot.bootstrap.GroupSerialExecutor;
 import cn.edu.scut.chatbot.bootstrap.SystemParamService;
+import cn.edu.scut.chatbot.exception.NonRetryableException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -64,6 +64,25 @@ public class EffectsExecutor {
     }
 
     /**
+     * 引擎事件发布器（Effect 执行结果发射——观测桥 effect.{kind} Span 的数据源）。
+     * setter 注入可选装配：未装配时零开销，测试构造不受扰。
+     */
+    private cn.edu.scut.chatbot.engine.events.EngineEventPublisher engineEvents;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setEngineEventPublisher(cn.edu.scut.chatbot.engine.events.EngineEventPublisher publisher) {
+        this.engineEvents = publisher;
+    }
+
+    private void emitEffectExecuted(EffectsQueueDO effect, String outcome, int retryCount) {
+        if (engineEvents != null) {
+            engineEvents.publish(new cn.edu.scut.chatbot.engine.events.EngineEvent.EffectExecuted(
+                    effect.getPlatform(), effect.getBotId(), effect.getGroupId(),
+                    effect.getKind(), outcome, retryCount));
+        }
+    }
+
+    /**
      * 启动恢复：running 行批量置回 pending（崩溃动作不丢——行未删即动作未完成）
      */
     @PostConstruct
@@ -108,16 +127,22 @@ public class EffectsExecutor {
             log.error("未知 Effect kind（置 failed） errorCode={} kind={}",
                     EffectErrorCodes.UNKNOWN_KIND, effect.getKind());
             mapper.markFailed(effect.getId());
+            emitEffectExecuted(effect, cn.edu.scut.chatbot.engine.events.EngineEvent.EffectExecuted.OUTCOME_UNKNOWN_KIND,
+                    effect.getRetryCount() == null ? 0 : effect.getRetryCount());
             return;
         }
         try {
             handler.handle(effect);
             // 成功删行（队列不是日志）
             mapper.deleteById(effect.getId());
+            emitEffectExecuted(effect, cn.edu.scut.chatbot.engine.events.EngineEvent.EffectExecuted.OUTCOME_SUCCESS,
+                    effect.getRetryCount() == null ? 0 : effect.getRetryCount());
         } catch (NonRetryableException e) {
             log.error("Effect 不可重试失败（置 failed） errorCode={} effectId={} kind={}",
                     e.getErrorCode(), effect.getId(), effect.getKind(), e);
             mapper.markFailed(effect.getId());
+            emitEffectExecuted(effect, cn.edu.scut.chatbot.engine.events.EngineEvent.EffectExecuted.OUTCOME_FAILED,
+                    effect.getRetryCount() == null ? 0 : effect.getRetryCount());
         } catch (Exception e) {
             // 可重试失败：指数退避 2^n 秒封顶 10 分钟；超 5 次置 failed 落告警
             int nextRetry = (effect.getRetryCount() == null ? 0 : effect.getRetryCount()) + 1;
@@ -125,6 +150,8 @@ public class EffectsExecutor {
                 log.error("Effect 重试超限置 failed errorCode={} effectId={} kind={} retries={}",
                         EffectErrorCodes.RETRY_EXCEEDED, effect.getId(), effect.getKind(), nextRetry, e);
                 mapper.markFailed(effect.getId());
+                emitEffectExecuted(effect, cn.edu.scut.chatbot.engine.events.EngineEvent.EffectExecuted.OUTCOME_FAILED,
+                        nextRetry);
                 return;
             }
             long backoffSeconds = Math.min(backoffBaseSeconds * (1L << (nextRetry - 1)), backoffMaxSeconds);
@@ -132,6 +159,8 @@ public class EffectsExecutor {
                     LocalDateTime.now(clock).plusSeconds(backoffSeconds));
             log.warn("Effect 可重试失败退避（第 {} 次，等 {}s 后重试） effectId={} kind={}",
                     nextRetry, backoffSeconds, effect.getId(), effect.getKind(), e);
+            emitEffectExecuted(effect, cn.edu.scut.chatbot.engine.events.EngineEvent.EffectExecuted.OUTCOME_RETRY_DEFERRED,
+                    nextRetry);
         }
     }
 }

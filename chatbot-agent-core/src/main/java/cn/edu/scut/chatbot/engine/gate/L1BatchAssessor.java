@@ -22,7 +22,10 @@ import java.util.List;
  */
 public class L1BatchAssessor {
 
-    private static final Logger log = LoggerFactory.getLogger(L1BatchAssessor.class);
+    /**
+     * Agent 业务过程日志（agent. 前缀——L1 注意力评估是决策流水，T022）
+     */
+    private static final Logger log = LoggerFactory.getLogger("agent.decision");
 
     /**
      * 近期消息窗口大小（research R6：默认最近 40 条投影）
@@ -122,6 +125,23 @@ public class L1BatchAssessor {
     }
 
     /**
+     * 引擎事件发布器（L1 决策结论发射——观测桥据此开 gate.l1 Span 与告警探针取数）。
+     * setter 注入可选装配：未装配时零开销，测试构造不受扰。
+     */
+    private cn.edu.scut.chatbot.engine.events.EngineEventPublisher engineEvents;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setEngineEventPublisher(cn.edu.scut.chatbot.engine.events.EngineEventPublisher publisher) {
+        this.engineEvents = publisher;
+    }
+
+    private void emitEngineEvent(cn.edu.scut.chatbot.engine.events.EngineEvent event) {
+        if (engineEvents != null) {
+            engineEvents.publish(event);
+        }
+    }
+
+    /**
      * 执行该群的 L1 批量评估（assessment Effect 的动作体）。
      * 评估失败在本方法内退避重试并最终降级——调用方（Effects 执行器）拿到的一律是完成。
      */
@@ -163,6 +183,9 @@ public class L1BatchAssessor {
             String normalized = "accept".equals(decision.decision()) ? "accept" : "ignore";
             triggerEventMapper.updateDecision(matched.getId(), normalized, TriggerEventDO.LAYER_L1,
                     decision.reason(), batchDigest, java.time.LocalDateTime.now(clock));
+            emitEngineEvent(new cn.edu.scut.chatbot.engine.events.EngineEvent.DecisionMade(
+                    platform, botId, groupId, matched.getId(), null, normalized,
+                    decision.reason(), TriggerEventDO.LAYER_L1, matched.getTraceContext()));
         }
     }
 
@@ -222,6 +245,10 @@ public class L1BatchAssessor {
             triggerEventMapper.updateDecision(trigger.getId(), TriggerEventDO.DECISION_IGNORE,
                     TriggerEventDO.LAYER_DEGRADE, "评估失败，保守忽略（宁可不说也不错说）",
                     "degraded-batch-" + pending.size(), java.time.LocalDateTime.now(clock));
+            emitEngineEvent(new cn.edu.scut.chatbot.engine.events.EngineEvent.DecisionMade(
+                    trigger.getPlatform(), trigger.getBotId(), trigger.getGroupId(),
+                    trigger.getId(), null, TriggerEventDO.DECISION_IGNORE,
+                    "评估失败，保守忽略", TriggerEventDO.LAYER_DEGRADE, trigger.getTraceContext()));
         }
     }
 

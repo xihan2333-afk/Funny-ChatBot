@@ -30,7 +30,11 @@ import java.util.List;
 @Component
 public class InboundDispatch implements InboundStreamConsumer.InboundHandler {
 
-    private static final Logger log = LoggerFactory.getLogger(InboundDispatch.class);
+    /**
+     * Agent 业务过程日志（agent. 前缀 → logs/agent.log 与 logs-agent-* 数据流，
+     * T022 双流纪律：L0 闸门编排是决策流水）
+     */
+    private static final Logger log = LoggerFactory.getLogger("agent.decision");
 
     private final IntakeService intakeService;
     private final TriggerEventMapper triggerEventMapper;
@@ -74,6 +78,23 @@ public class InboundDispatch implements InboundStreamConsumer.InboundHandler {
         this.topicLifecycleService = topicLifecycleService;
     }
 
+    /**
+     * 引擎事件发布器（L0 决策结论发射——观测桥据此开 gate.l0 Span 与 turn Span）。
+     * setter 注入可选装配：未装配时零开销，测试构造不受扰。
+     */
+    private cn.edu.scut.chatbot.engine.events.EngineEventPublisher engineEvents;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setEngineEventPublisher(cn.edu.scut.chatbot.engine.events.EngineEventPublisher publisher) {
+        this.engineEvents = publisher;
+    }
+
+    private void emitEngineEvent(cn.edu.scut.chatbot.engine.events.EngineEvent event) {
+        if (engineEvents != null) {
+            engineEvents.publish(event);
+        }
+    }
+
     @Override
     public void handle(EventEnvelope envelope) {
         // 回执与 BotEvent 在 IntakeService 内分流；其余事件登记后过 L0
@@ -115,16 +136,21 @@ public class InboundDispatch implements InboundStreamConsumer.InboundHandler {
         }
         triggerEventMapper.updateDecision(trigger.getId(), decision.decision(), decision.decisionLayer(),
                 decision.reason(), null, LocalDateTime.now(clock));
+        Long decidedTurnId = null;
         if ("accept".equals(decision.decision())) {
             // L0 强制接受：创建 Turn（含 generation Effect 入队与同批合并）
             try {
-                turnCoordinator.acceptTurn(envelope.platform(), envelope.botId(),
+                decidedTurnId = turnCoordinator.acceptTurn(envelope.platform(), envelope.botId(),
                         envelope.groupId(), trigger.getId());
             } catch (CommandRejectedException rejected) {
                 // 排队超上限：合法拒绝路径——决策已留档，Turn 不创建
                 log.warn("acceptTurn 被拒绝（排队超上限） reason={}", rejected.getReason());
             }
         }
+        emitEngineEvent(new cn.edu.scut.chatbot.engine.events.EngineEvent.DecisionMade(
+                envelope.platform(), envelope.botId(), envelope.groupId(),
+                trigger.getId(), decidedTurnId, decision.decision(), decision.reason(),
+                decision.decisionLayer(), envelope.traceContext()));
     }
 
     /**

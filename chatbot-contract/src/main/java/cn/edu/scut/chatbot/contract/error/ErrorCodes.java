@@ -70,6 +70,58 @@ public final class ErrorCodes {
      */
     public static final String ADAPTER_ID_CLOCK_BACKWARD = "adapter.id.clock_backward";
 
+    // ===== observe（观测域，005-observability-safety） =====
+    /**
+     * 观测初始化失败，已降级 noop——观测管道不可用但不阻断应用启动（FR-026 可丢不可卡）
+     */
+    public static final String OBSERVE_INIT_FAILED = "observe.init_failed";
+
+    /**
+     * 观测导出事件被丢弃（有界队列满 / Collector 不可达重试耗尽）——计数喂给「导出管道异常」告警
+     */
+    public static final String OBSERVE_EXPORT_DROPPED = "observe.export_dropped";
+
+    /**
+     * 观测查询不可达（ES 连接失败等）——明确可重试错误，不挂死；只影响观测消费不影响业务
+     */
+    public static final String OBSERVE_QUERY_UNAVAILABLE = "observe.query_unavailable";
+
+    // ===== security（安全域，005-observability-safety） =====
+    /**
+     * 出站内容被词库拦截（block 级命中）——isError 工具结果 + 终止循环 + Outbox 零写入
+     */
+    public static final String SECURITY_CONTENT_FILTERED = "security.contentFiltered";
+
+    /**
+     * 提示词指纹检测命中（发言与 systemPrompt 连续片段超阈值）——整段倒出设定是确定性后果
+     */
+    public static final String SECURITY_PROMPT_LEAK = "security.promptLeak";
+
+    /**
+     * 成本熔断已触发（当日累计超阈值）——拒新重任务 / 停主动行为 / 能力类调用拒绝
+     */
+    public static final String SECURITY_BREAKER_TRIPPED = "security.breakerTripped";
+
+    /**
+     * createTask 越权被拒（Mandate 授权不通过）——模型可自然告知群友"这个我做不了"
+     */
+    public static final String SECURITY_MANDATE_DENIED = "security.mandateDenied";
+
+    /**
+     * 频控超出（重任务 / runCode 每日上限）——明确错误结果，次日自动恢复
+     */
+    public static final String SECURITY_QUOTA_EXCEEDED = "security.quotaExceeded";
+
+    /**
+     * 链接抓取域名在黑名单——请求发出前拦截，按既定降级路径处理
+     */
+    public static final String SECURITY_DOMAIN_BLOCKED = "security.domainBlocked";
+
+    /**
+     * 安全事件落库失败（审计写入异常——不反噬业务但必须有日志可查）
+     */
+    public static final String SECURITY_AUDIT_WRITE_FAILED = "security.auditWriteFailed";
+
     private ErrorCodes() {
     }
 }

@@ -26,7 +26,10 @@ import java.util.List;
 @Component
 public class TaskCoordinator {
 
-    private static final Logger log = LoggerFactory.getLogger(TaskCoordinator.class);
+    /**
+     * Agent 业务过程日志（agent. 前缀——任务推进是业务流水，T022）
+     */
+    private static final Logger log = LoggerFactory.getLogger("agent.task");
 
     /**
      * 时机评估的话题安静阈值：群最近消息 3 秒内 → 时机不合推迟 1 分钟
@@ -61,6 +64,25 @@ public class TaskCoordinator {
     }
 
     /**
+     * 引擎事件发布器（Task 状态机迁移发射——观测桥的闭合注册表凭 task:{taskId} 定位
+     * 在途 task Span）。setter 注入可选装配：未装配时零开销，测试构造不受扰。
+     */
+    private cn.edu.scut.chatbot.engine.events.EngineEventPublisher engineEvents;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setEngineEventPublisher(cn.edu.scut.chatbot.engine.events.EngineEventPublisher publisher) {
+        this.engineEvents = publisher;
+    }
+
+    private void emitTaskTransitioned(TaskDO task, String from, String to) {
+        if (engineEvents != null) {
+            engineEvents.publish(new cn.edu.scut.chatbot.engine.events.EngineEvent.TaskTransitioned(
+                    task.getPlatform(), task.getBotId(), task.getGroupId(),
+                    task.getId(), from, to, task.getMandateSource()));
+        }
+    }
+
+    /**
      * 创建 Task（请求类）：Mandate 校验不过即拒绝（拒绝留痕——调用方记审计）。
      * 轻任务到期驱动经 taskWake Effect（schedule_at 扫描）；重任务同样 taskWake 到期后
      * 再分派 workerLaunch。
@@ -75,6 +97,7 @@ public class TaskCoordinator {
         }
         taskMapper.insertTask(task);
         scheduleWake(taskId);
+        emitTaskTransitioned(task, null, TaskStatus.SCHEDULED.name());
         return taskId;
     }
 
@@ -100,6 +123,7 @@ public class TaskCoordinator {
                     TaskStatus.RUNNING.name()) == 0) {
                 return;   // 并发推进（崩溃恢复重放等）
             }
+            emitTaskTransitioned(task, TaskStatus.SCHEDULED.name(), TaskStatus.RUNNING.name());
             dispatchByKind(task);
         } else if (TaskStatus.WAITING.name().equals(task.getStatus())) {
             // 条件唤醒：WAITING → RUNNING 继续推进
@@ -107,6 +131,7 @@ public class TaskCoordinator {
                     TaskStatus.RUNNING.name()) == 0) {
                 return;
             }
+            emitTaskTransitioned(task, TaskStatus.WAITING.name(), TaskStatus.RUNNING.name());
             dispatchByKind(task);
         }
     }
@@ -122,6 +147,7 @@ public class TaskCoordinator {
                     (task == null ? "不存在" : task.getStatus()) + "），无法停止");
         }
         taskMapper.advanceStatus(taskId, task.getStatus(), TaskStatus.CANCELLED.name());
+        emitTaskTransitioned(task, task.getStatus(), TaskStatus.CANCELLED.name());
         workerSignalRegistry.cancelWorker(taskId);
         recordExecution(taskId, TaskExecutionLogDO.KIND_ROUND, "人工停止：" + reason);
     }
@@ -149,6 +175,8 @@ public class TaskCoordinator {
         }
         taskMapper.advanceStatus(taskId, TaskStatus.RUNNING.name(),
                 success ? TaskStatus.DONE.name() : TaskStatus.FAILED.name());
+        emitTaskTransitioned(task, TaskStatus.RUNNING.name(),
+                success ? TaskStatus.DONE.name() : TaskStatus.FAILED.name());
         taskMapper.updateResult(taskId, resultJson, errorCode, LocalDateTime.now(clock));
 
         // 重任务结论 → 内部交付事件（重新竞争群推理权，由常驻会话人格化交付）
@@ -168,6 +196,7 @@ public class TaskCoordinator {
             }
             if (mandateGuard.isDisqualified(task)) {
                 taskMapper.advanceStatus(task.getId(), task.getStatus(), TaskStatus.CANCELLED.name());
+                emitTaskTransitioned(task, task.getStatus(), TaskStatus.CANCELLED.name());
                 recordExecution(task.getId(), TaskExecutionLogDO.KIND_ROUND,
                         "Mandate 重验证失格取消（策略变更）类别=" + task.getCategory());
                 cancelled++;

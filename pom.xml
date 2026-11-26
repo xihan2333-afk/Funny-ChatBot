@@ -90,13 +90,19 @@
                 <version>${opentelemetry.version}</version>
             </dependency>
             <!--
-              OpenTelemetry SDK 仅测试域使用：集成测试 JVM 无 javaagent，测试基建全局注册内存版
-              SDK 模拟生产挂 agent 的形态（EventTranslator 显式开 Span 的路径才能产生有效
-              traceparent，TraceContinuityIT 的 traceId 贯穿断言依赖它）。版本与 api 同线。
+              OpenTelemetry SDK：agent-core 主依赖（javaagent 缺席时事件桥自建兜底，2.5.2）；
+              access-layer 测试域亦消费（集成测试 JVM 无 javaagent，测试基建全局注册内存版
+              SDK 模拟生产挂 agent 的形态，TraceContinuityIT 依赖它）。版本与 api 同线。
             -->
             <dependency>
                 <groupId>io.opentelemetry</groupId>
                 <artifactId>opentelemetry-sdk</artifactId>
+                <version>${opentelemetry.version}</version>
+            </dependency>
+            <!-- 自建 SDK 兜底的 OTLP gRPC 导出器（sdk 行"OTLP 导出"的具体构件） -->
+            <dependency>
+                <groupId>io.opentelemetry</groupId>
+                <artifactId>opentelemetry-exporter-otlp</artifactId>
                 <version>${opentelemetry.version}</version>
             </dependency>
             <dependency>
@@ -147,6 +153,12 @@
             <dependency>
                 <groupId>org.testcontainers</groupId>
                 <artifactId>mysql</artifactId>
+                <version>${testcontainers.version}</version>
+            </dependency>
+            <!-- Elasticsearch 8 真容器（005 观测域 IT：链路/日志/指标查询与 es-init 脚本） -->
+            <dependency>
+                <groupId>org.testcontainers</groupId>
+                <artifactId>elasticsearch</artifactId>
                 <version>${testcontainers.version}</version>
             </dependency>
         </dependencies>

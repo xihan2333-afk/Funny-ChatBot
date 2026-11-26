@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  日志双流物理分离（设计方案 2.5.3、observability-bridge 契约第 6 节）：
+  系统日志（root 与框架 logger）落 logs/system.log；Agent 业务过程日志
+  （agent. 前缀 logger：agent.decision / agent.generation / agent.tool / agent.task）
+  落 logs/agent.log——两类日志分文件、分数据流（OTLP appender 按 logger 前缀附加
+  log.category 属性，Collector routing connector 凭此路由 logs-system-* / logs-agent-*）。
+
+  边界纪律（写给读日志的人）：
+  日志是给人排障看的；结构化数据的事实源是 Decision 留档、转录、llm_call_log 表
+  与 ES 里的 Span——统计与报表一律查事实源，不解析日志。
+
+  ERROR 级日志必须携带 errorCode 与 traceId（宪法错误码规约）：MDC 的 traceId 由
+  javaagent logback 增强或事件桥 MdcTraceScope 写入，pattern 里带出来。
+
+  LOG_HOME 可经环境变量 CHATBOT_LOG_HOME 覆盖（测试写临时目录用）。
+-->
+<configuration>
+
+    <property scope="context" name="LOG_HOME" value="${CHATBOT_LOG_HOME:-logs}"/>
+
+    <!-- 链路标识 pattern：traceId/spanId（javaagent 或事件桥 MDC 写入）+ groupId/turnId（事件桥写入） -->
+    <property name="PATTERN"
+              value="%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] [%X{traceId:-}/%X{spanId:-}] [%X{groupId:-}/%X{turnId:-}] %logger{36} - %msg%n"/>
+
+    <!-- ===== 控制台（开发可见性；生产 compose logs 也走这里） ===== -->
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>${PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- ===== 系统日志文件（root 与框架 logger） ===== -->
+    <appender name="SYSTEM_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_HOME}/system.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/system.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- ===== Agent 业务过程日志文件（agent. 前缀 logger） ===== -->
+    <appender name="AGENT_FILE" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${LOG_HOME}/agent.log</file>
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${LOG_HOME}/agent.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
+        </rollingPolicy>
+        <encoder>
+            <pattern>${PATTERN}</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <!-- ===== OTLP 异步外发（结构化数据流；启动时由 ObservabilityBridge 装配 OTel 实例） =====
+         CategoryRoutingOtlpAppender 按 logger 前缀附加 log.category 属性
+         （agent / system），Collector 据此路由两个日志数据流 -->
+    <appender name="OTLP_RAW" class="cn.edu.scut.chatbot.observability.bridge.CategoryRoutingOtlpAppender">
+        <captureMdcAttributes>log.category</captureMdcAttributes>
+        <numLogsCapturedBeforeOtelInstall>0</numLogsCapturedBeforeOtelInstall>
+    </appender>
+    <appender name="OTLP_ASYNC" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>4096</queueSize>
+        <neverBlock>true</neverBlock>
+        <appender-ref ref="OTLP_RAW"/>
+    </appender>
+
+    <!-- ===== Agent 业务过程 logger（引擎决策 / 生成 / 工具执行 / 任务推进） =====
+         additivity=false：不向 root 的 system 文件重复写 -->
+    <logger name="agent.decision" level="INFO" additivity="false">
+        <appender-ref ref="AGENT_FILE"/>
+        <appender-ref ref="OTLP_ASYNC"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    <logger name="agent.generation" level="INFO" additivity="false">
+        <appender-ref ref="AGENT_FILE"/>
+        <appender-ref ref="OTLP_ASYNC"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    <logger name="agent.tool" level="INFO" additivity="false">
+        <appender-ref ref="AGENT_FILE"/>
+        <appender-ref ref="OTLP_ASYNC"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+    <logger name="agent.task" level="INFO" additivity="false">
+        <appender-ref ref="AGENT_FILE"/>
+        <appender-ref ref="OTLP_ASYNC"/>
+        <appender-ref ref="CONSOLE"/>
+    </logger>
+
+    <!-- ===== root：系统日志流 ===== -->
+    <root level="INFO">
+        <appender-ref ref="SYSTEM_FILE"/>
+        <appender-ref ref="OTLP_ASYNC"/>
+        <appender-ref ref="CONSOLE"/>
+    </root>
+
+</configuration>

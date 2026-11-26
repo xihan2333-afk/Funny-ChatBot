@@ -41,6 +41,13 @@ public class SlotResolver {
     }
 
     /**
+     * 槽位绑定版本（观测版本三键取数：engine 经本门面拿，不直触 ModelCatalog）
+     */
+    public long bindingVersionOf(String slotCode) {
+        return catalog.bindingVersionOf(slotCode);
+    }
+
+    /**
      * gen_params JSON → GenerationParams 四项（叶子值路径展开——嵌套对象序列化为
      * 字符串值，供应商私有参数如 thinking 开关的兜底通道）
      */

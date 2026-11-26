@@ -32,7 +32,10 @@ import java.util.Map;
 @Component
 public class GenerationRunner {
 
-    private static final Logger log = LoggerFactory.getLogger(GenerationRunner.class);
+    /**
+     * Agent 业务过程日志（agent. 前缀——生成驱动是业务流水，T022）
+     */
+    private static final Logger log = LoggerFactory.getLogger("agent.generation");
 
     /**
      * systemPrompt 组装（T086 已挂接 PromptAssembler 四层组装；本常量仅作组装失败的兜底）
@@ -42,13 +45,37 @@ public class GenerationRunner {
 
     private String systemPromptFor(RunConfig.ExecutionForm form, String platform,
                                    String botId, String groupId, String taskLayerText) {
+        return assembleOutcomeFor(form, platform, botId, groupId, taskLayerText).prompt();
+    }
+
+    /**
+     * 组装并带出版本信息（观测版本三键的 promptFragment / persona 两键来源；
+     * slotBinding 键由槽位门面另取）。组装失败走兜底占位、版本全 0——Run 不因观测缺数据失败
+     */
+    private cn.edu.scut.chatbot.prompt.PromptAssembler.AssembleOutcome assembleOutcomeFor(
+            RunConfig.ExecutionForm form, String platform,
+            String botId, String groupId, String taskLayerText) {
         try {
-            String assembled = promptAssembler.assemble(form, platform, botId, groupId, taskLayerText);
-            return assembled.isBlank() ? FALLBACK_SYSTEM_PROMPT : assembled;
+            cn.edu.scut.chatbot.prompt.PromptAssembler.AssembleOutcome outcome =
+                    promptAssembler.assembleDetailed(form, platform, botId, groupId, taskLayerText);
+            return outcome.prompt().isBlank()
+                    ? new cn.edu.scut.chatbot.prompt.PromptAssembler.AssembleOutcome(
+                    FALLBACK_SYSTEM_PROMPT, outcome.fragmentVersion(), outcome.personaVersion())
+                    : outcome;
         } catch (Exception e) {
             log.warn("systemPrompt 组装异常走兜底占位", e);
-            return FALLBACK_SYSTEM_PROMPT;
+            return new cn.edu.scut.chatbot.prompt.PromptAssembler.AssembleOutcome(
+                    FALLBACK_SYSTEM_PROMPT, 0, 0);
         }
+    }
+
+    /**
+     * 版本三键合成（RunEvent START 携带——重放批次按版本分组聚合的口径）
+     */
+    private RunConfig.VersionKeys versionKeysOf(
+            cn.edu.scut.chatbot.prompt.PromptAssembler.AssembleOutcome outcome, String slotCode) {
+        return new RunConfig.VersionKeys(outcome.fragmentVersion(), outcome.personaVersion(),
+                slotResolver.bindingVersionOf(slotCode));
     }
 
     private final AgentLoop agentLoop;
@@ -92,6 +119,25 @@ public class GenerationRunner {
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     void setEmotionService(cn.edu.scut.chatbot.memory.emotion.EmotionService service) {
         this.emotionService = service;
+    }
+
+    /**
+     * 循环事件装配工厂（观测桥经它把消费方挂进每 Run 的监听器——engine 不触达 observability）。
+     * setter 注入可选装配：未装配时退回既有共享监听器形态。
+     */
+    private cn.edu.scut.chatbot.infrastructure.eventbus.LoopEventWiring loopEventWiring;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setLoopEventWiring(cn.edu.scut.chatbot.infrastructure.eventbus.LoopEventWiring wiring) {
+        this.loopEventWiring = wiring;
+    }
+
+    /**
+     * Run 级监听器：装配工厂在场时按 Run 新建（桥消费方已挂入，Run 结束 close 排空残余）；
+     * 缺席时回退既有共享监听器（单元测试形态，不 close）。
+     */
+    private BoundedEventListener listenerForRun() {
+        return loopEventWiring != null ? loopEventWiring.newListener() : eventListener;
     }
 
     public GenerationRunner(AgentLoop agentLoop,
@@ -205,11 +251,16 @@ public class GenerationRunner {
                 turnCoordinator.generationFailed(turn.getId(), "llm.config_missing:" + e.getMessage());
                 return;
             }
-            AgentContext context = new AgentContext(systemPromptFor(RunConfig.ExecutionForm.TURN, turn.getPlatform(), turn.getBotId(), turn.getGroupId(), null), history,
+            cn.edu.scut.chatbot.prompt.PromptAssembler.AssembleOutcome promptOutcome =
+                    assembleOutcomeFor(RunConfig.ExecutionForm.TURN, turn.getPlatform(),
+                            turn.getBotId(), turn.getGroupId(), null);
+            AgentContext context = new AgentContext(promptOutcome.prompt(), history,
                     turnTools.stream().map(AgentTool::descriptor).toList(),
                     modelConfig);
             AgentLoop.RunOutcome outcome = executeSpec(turn.getPlatform(), turn.getBotId(),
-                    turn.getGroupId(), turn.getId(), null, context, RunConfig.turnDefaults(),
+                    turn.getGroupId(), turn.getId(), null, context,
+                    RunConfig.turnDefaults().withVersionKeys(
+                            versionKeysOf(promptOutcome, cn.edu.scut.chatbot.llm.slot.ModelCatalog.SLOT_CHAT_MAIN)),
                     session, turnTools);
             settleTurnOutcome(turn, outcome);
             compactAfterRun(session);
@@ -250,13 +301,17 @@ public class GenerationRunner {
                 taskCoordinator.taskConcluded(taskId, null, "llm.config_missing:" + e.getMessage());
                 return;
             }
+            cn.edu.scut.chatbot.prompt.PromptAssembler.AssembleOutcome promptOutcome =
+                    assembleOutcomeFor(RunConfig.ExecutionForm.LIGHT_TASK, task.getPlatform(),
+                            task.getBotId(), task.getGroupId(), "按任务指令自然地完成定时发言");
             AgentContext context = new AgentContext(
-                    systemPromptFor(RunConfig.ExecutionForm.LIGHT_TASK, task.getPlatform(),
-                            task.getBotId(), task.getGroupId(), "按任务指令自然地完成定时发言"),
+                    promptOutcome.prompt(),
                     history, taskTools.stream().map(AgentTool::descriptor).toList(),
                     modelConfig);
             AgentLoop.RunOutcome outcome = executeSpec(task.getPlatform(), task.getBotId(),
-                    task.getGroupId(), null, taskId, context, RunConfig.lightTaskDefaults(),
+                    task.getGroupId(), null, taskId, context,
+                    RunConfig.lightTaskDefaults().withVersionKeys(
+                            versionKeysOf(promptOutcome, cn.edu.scut.chatbot.llm.slot.ModelCatalog.SLOT_CHAT_MAIN)),
                     session, taskTools);
             if (AgentLoop.RunOutcome.STOP_ERROR.equals(outcome.stopReason())
                     || AgentLoop.RunOutcome.STOP_ABORTED.equals(outcome.stopReason())) {
@@ -316,12 +371,16 @@ public class GenerationRunner {
                         e.getMessage());
                 return;
             }
-            AgentContext context = new AgentContext(systemPromptFor(RunConfig.ExecutionForm.TURN,
-                    task.getPlatform(), task.getBotId(), task.getGroupId(), "任务结论人格化交付"), history,
+            cn.edu.scut.chatbot.prompt.PromptAssembler.AssembleOutcome promptOutcome =
+                    assembleOutcomeFor(RunConfig.ExecutionForm.TURN,
+                            task.getPlatform(), task.getBotId(), task.getGroupId(), "任务结论人格化交付");
+            AgentContext context = new AgentContext(promptOutcome.prompt(), history,
                     deliveryTools.stream().map(AgentTool::descriptor).toList(),
                     modelConfig);
             executeSpec(task.getPlatform(), task.getBotId(), task.getGroupId(), null, taskId,
-                    context, RunConfig.turnDefaults(), session, deliveryTools);
+                    context, RunConfig.turnDefaults().withVersionKeys(
+                            versionKeysOf(promptOutcome, cn.edu.scut.chatbot.llm.slot.ModelCatalog.SLOT_CHAT_MAIN)),
+                    session, deliveryTools);
             compactAfterRun(session);
         } finally {
             sessionManager.releaseInference(ticket);
@@ -387,8 +446,21 @@ public class GenerationRunner {
                     }
                     sessionManager.appendTranscript(session, turnMessages, completedRunId);
                 },
-                eventListener);
-        return agentLoop.execute(spec);
+                listenerForRun());
+        try {
+            return agentLoop.execute(spec);
+        } finally {
+            if (loopEventWiring != null) {
+                eventListenerOfSpec(spec).close();
+            }
+        }
+    }
+
+    /**
+     * 从 RunSpec 取回监听器（close 排空残余事件用）
+     */
+    private static BoundedEventListener eventListenerOfSpec(AgentLoop.RunSpec spec) {
+        return (BoundedEventListener) spec.eventListener();
     }
 
     /**

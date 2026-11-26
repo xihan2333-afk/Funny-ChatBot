@@ -128,6 +128,16 @@ public final class EnvelopeFactory {
     }
 
     /**
+     * 覆盖信封 traceContext（跨进程接续用例：模拟接入层带 W3C traceparent 的信封）
+     */
+    public static EventEnvelope withTraceContext(EventEnvelope envelope, String traceContext) {
+        return new EventEnvelope(envelope.eventId(), envelope.outboxId(), envelope.dedupKey(),
+                envelope.platform(), envelope.botId(), envelope.groupId(), envelope.userId(),
+                envelope.type(), envelope.payload(), envelope.occurredAt(), envelope.receivedAt(),
+                envelope.extension(), envelope.rawRef(), traceContext);
+    }
+
+    /**
      * 信封 → 线格式 JSON（XADD 的 envelope 字段值）
      */
     public static String toJson(EventEnvelope envelope) {

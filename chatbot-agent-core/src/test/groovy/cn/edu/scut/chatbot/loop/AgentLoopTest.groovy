@@ -109,7 +109,7 @@ class AgentLoopTest extends Specification {
         given: "剧本停顿 3 秒不吐任何事件，卡死阈值 800ms"
         streamFn.addScript(ScriptedStreamFn.stallForever(3000))
         def config = new RunConfig(RunConfig.ExecutionForm.TURN, 2,
-                java.time.Duration.ofSeconds(10), 800)
+                java.time.Duration.ofSeconds(10), 800, null)
 
         when:
         def outcome = loop.execute(specFor([:], config))
