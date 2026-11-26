@@ -31,4 +31,10 @@ public interface CredentialMapper {
      * 鉴权失败停用（终态——补配新 key 而非复活）
      */
     int markDisabled(@Param("id") long id);
+
+    /**
+     * 各供应商的可用 key 数（告警探针：凭证全冷却判定——available=0 即命中；
+     * 条件计数保证全冷却的供应商也出现在结果里，值为 0）
+     */
+    List<OwnerAvailableCount> countAvailableByProvider();
 }

@@ -59,4 +59,26 @@ public interface TurnMapper {
      * 排队超时的 ACCEPTED Turn（H2：排队超时放弃扫描）
      */
     java.util.List<TurnDO> selectTimedOutQueued(@Param("deadline") java.time.LocalDateTime deadline);
+
+    /**
+     * 窗口内已完成 Turn 的端到端时长列表（毫秒，accepted_at → finished_at，时延报表分位用）
+     */
+    List<Long> selectFinishedDurations(@Param("from") LocalDateTime from,
+                                       @Param("to") LocalDateTime to,
+                                       @Param("groupId") String groupId);
+
+    /**
+     * 窗口内 Turn 按状态计数（质量报表：成功率 / 沉默比例）
+     */
+    List<TurnStatusCount> countByStatus(@Param("from") LocalDateTime from,
+                                        @Param("to") LocalDateTime to,
+                                        @Param("groupId") String groupId);
+
+    /**
+     * 窗口内指定错误码前缀的失败 Turn 计数（槽位缺失告警：error_code 形如
+     * "llm.config_missing:明细"——前缀匹配）
+     */
+    long countByErrorCodePrefix(@Param("errorCodePrefix") String errorCodePrefix,
+                                @Param("from") LocalDateTime from,
+                                @Param("to") LocalDateTime to);
 }

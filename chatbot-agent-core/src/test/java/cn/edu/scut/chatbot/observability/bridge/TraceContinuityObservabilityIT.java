@@ -190,9 +190,11 @@ class TraceContinuityObservabilityIT extends AbstractIntegrationTest {
         assertThat(outbox.getTraceContext()).startsWith("00-" + TRACE_ID + "-");
 
         // 5. 事件桥 Span 树全程同一 traceId（内存 SpanExporter 收集，R19）
+        // turn Span 例外：契约上闭合于终态迁移（SETTLED/SILENT/FAILED/DROPPED），
+        // 内存导出器只见已闭合 Span——其断言移到第 6 步回执结算之后
         await().atMost(java.time.Duration.ofSeconds(10)).until(() ->
                 SPANS.firstByName("llm.call") != null);
-        for (String name : List.of("intake", "gate.l0", "turn", "run", "llm.call", "tool.sendMessage")) {
+        for (String name : List.of("intake", "gate.l0", "run", "llm.call", "tool.sendMessage")) {
             SpanData span = SPANS.firstByName(name);
             assertThat(span).as("Span %s 应已产生", name).isNotNull();
             assertThat(span.getTraceId()).as("Span %s 的 traceId 应与信封一致", name)
@@ -205,6 +207,11 @@ class TraceContinuityObservabilityIT extends AbstractIntegrationTest {
         await().atMost(java.time.Duration.ofSeconds(15)).until(() ->
                 SPANS.firstByName("delivery.settle") != null);
         assertThat(SPANS.firstByName("delivery.settle").getTraceId()).isEqualTo(TRACE_ID);
+
+        // 6b. 回执结算把 turn 推进终态、turn Span 闭合导出——补验其 traceId 同源
+        await().atMost(java.time.Duration.ofSeconds(15)).until(() ->
+                SPANS.firstByName("turn") != null);
+        assertThat(SPANS.firstByName("turn").getTraceId()).isEqualTo(TRACE_ID);
 
         // 7. SC-002 用量一致率：llm.call Span 用量属性与 llm_call_log 落账逐项一致
         await().atMost(java.time.Duration.ofSeconds(5)).until(() ->

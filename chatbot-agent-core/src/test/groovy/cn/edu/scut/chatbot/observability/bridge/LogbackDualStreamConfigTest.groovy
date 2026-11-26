@@ -3,11 +3,13 @@
 // log.category 属性按前缀附加（Collector 路由依据）；MDC 激活清理不串味（虚拟线程复用）
 package cn.edu.scut.chatbot.observability.bridge
 
+import ch.qos.logback.classic.AsyncAppender
 import ch.qos.logback.classic.Logger
 import ch.qos.logback.classic.LoggerContext
 import ch.qos.logback.classic.joran.JoranConfigurator
 import ch.qos.logback.core.FileAppender
 import ch.qos.logback.core.rolling.RollingFileAppender
+import ch.qos.logback.core.status.Status
 import cn.edu.scut.chatbot.loop.events.LoopEvent
 import io.opentelemetry.api.trace.SpanContext
 import io.opentelemetry.api.trace.TraceFlags
@@ -37,6 +39,12 @@ class LogbackDualStreamConfigTest extends Specification {
         (root.getAppender("SYSTEM_FILE") as RollingFileAppender).file.endsWith("system.log")
         root.getAppender("OTLP_ASYNC") != null
 
+        and: "整份配置干净装载、OTel appender 真实 start 成功（对齐 Spring Boot 口径：ERROR status 会被升级为启动失败——005 IT 翻车根因）"
+        def otlpRaw = (root.getAppender("OTLP_ASYNC") as AsyncAppender).getAppender("OTLP_RAW")
+        otlpRaw != null && otlpRaw.started
+        context.getStatusManager().getCopyOfStatusList()
+                .findAll { it.getLevel() == Status.ERROR }.isEmpty()
+
         and: "agent. 前缀四个 logger 绑 agent 文件，不向 root 重复写（additivity=false）"
         for (name in ["agent.decision", "agent.generation", "agent.tool", "agent.task"]) {
             def logger = context.getLogger(name)
@@ -60,6 +68,21 @@ class LogbackDualStreamConfigTest extends Specification {
         CategoryRoutingOtlpAppender.categoryOf("agent.generation") == "agent"
         CategoryRoutingOtlpAppender.categoryOf("cn.edu.scut.chatbot.loop.AgentLoop") == "system"
         CategoryRoutingOtlpAppender.categoryOf(null) == "system"
+    }
+
+    def "numLogsCapturedBeforeOtelInstall 非法值钳到 1：观测装配不阻断启动（FR-026）"() {
+        given: "父类 1.33.6-alpha 的 start() 直接拿该值当 ArrayBlockingQueue 容量，0 会抛 IAE"
+        def appender = new CategoryRoutingOtlpAppender()
+        appender.setContext(new LoggerContext())
+        appender.setName("OTLP_CLAMP")
+
+        when:
+        appender.setNumLogsCapturedBeforeOtelInstall(0)
+        appender.start()
+
+        then:
+        noExceptionThrown()
+        appender.isStarted()
     }
 
     def "MdcTraceScope 激活注入 traceId spanId groupId turnId 关闭即清理"() {

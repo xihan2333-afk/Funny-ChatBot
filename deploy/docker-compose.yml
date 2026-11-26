@@ -106,6 +106,16 @@ services:
       CHATBOT_MYSQL_PASSWORD: ${CHATBOT_MYSQL_PASSWORD:-dev123}
       CHATBOT_REDIS_HOST: redis
       CHATBOT_REDIS_PORT: "6379"
+      # 观测栈接入（005）：自建 SDK 导出与 ES 查询指向观测容器（.env 同名变量覆盖）
+      CHATBOT_OTLP_ENDPOINT: ${CHATBOT_OTLP_ENDPOINT:-http://otel-collector:4317}
+      CHATBOT_OTLP_ENABLED: ${CHATBOT_OTLP_ENABLED:-true}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4317}
+      CHATBOT_ES_URL: http://elasticsearch:9200
+      CHATBOT_ES_USERNAME: elastic
+      CHATBOT_ES_PASSWORD: ${CHATBOT_ES_PASSWORD:-dev-es-123}
+      # 管理平台首启种子（US9：must_change 强制改密）
+      CHATBOT_ADMIN_INIT_USERNAME: ${CHATBOT_ADMIN_INIT_USERNAME:-admin}
+      CHATBOT_ADMIN_INIT_PASSWORD: ${CHATBOT_ADMIN_INIT_PASSWORD:-}
       AGENT_WORKER_ID: "1"
       TZ: Asia/Shanghai
     ports:
@@ -150,9 +160,76 @@ services:
       start_period: 40s
     restart: unless-stopped
 
+  # =====================================================================
+  # 观测栈（005-observability-safety，设计方案 2.5.5 / R19）：
+  # elasticsearch 8.11.4 单节点（与 elasticsearch-java 客户端小版本对齐）+
+  # otel-collector contrib（OTLP 接收、按 log.category 路由、批量写入）。
+  # 镜像版本进依赖矩阵登记（ChatBot设计方案.md 3.1.2）。
+  # =====================================================================
+
+  elasticsearch:
+    image: elasticsearch:8.11.4
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "true"
+      ELASTIC_PASSWORD: ${CHATBOT_ES_PASSWORD:-dev-es-123}
+      ES_JAVA_OPTS: -Xms2g -Xmx2g
+      TZ: Asia/Shanghai
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    healthcheck:
+      test: [ "CMD-SHELL", "curl -fsS -u elastic:${CHATBOT_ES_PASSWORD:-dev-es-123} http://localhost:9200/_cluster/health | grep -qE '\"status\":\"(green|yellow)\"'" ]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 60s
+    restart: unless-stopped
+
+  # 索引模板与 ILM 策略初始化：一次性任务，首启执行成功后退出（幂等可重跑）
+  es-init:
+    image: elasticsearch:8.11.4
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ./es-init:/es-init:ro
+    entrypoint: [ "bash", "/es-init/init.sh" ]
+    environment:
+      ES_URL: http://elasticsearch:9200
+      ES_USERNAME: elastic
+      ES_PASSWORD: ${CHATBOT_ES_PASSWORD:-dev-es-123}
+    restart: "no"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.98.0
+    command: [ "--config=/etc/otel-collector.yaml" ]
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    volumes:
+      - ./otel-collector.yaml:/etc/otel-collector.yaml:ro
+    environment:
+      ES_ENDPOINT: http://elasticsearch:9200
+      ES_USERNAME: elastic
+      ES_PASSWORD: ${CHATBOT_ES_PASSWORD:-dev-es-123}
+    ports:
+      # OTLP gRPC / HTTP 接收（应用与接入层的导出地址指向这里）
+      - "4317:4317"
+      - "4318:4318"
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://localhost:13133/ || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
 volumes:
   mysql-data:
   redis-data:
   napcat-qq:
   napcat-config:
   sandbox-python-image:
+  es-data:

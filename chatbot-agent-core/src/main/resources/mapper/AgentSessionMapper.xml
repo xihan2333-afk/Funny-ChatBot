@@ -128,4 +128,22 @@
         ORDER BY occurred_at
     </select>
 
+    <!-- 上下文报表：当前水位档位分布（会话是当前态，不带时间窗） -->
+    <select id="countWindowLevel" resultType="cn.edu.scut.chatbot.engine.session.WindowLevelCount">
+        SELECT window_level AS windowLevel, COUNT(*) AS count
+        FROM agent_session
+        GROUP BY window_level
+    </select>
+
+    <!-- 反馈与上下文报表：窗口内转录 (kind, occurred_at) 轻量序列——跟帖判定与压缩计数 -->
+    <select id="selectTranscriptKindTimes" resultType="cn.edu.scut.chatbot.engine.session.TranscriptKindTime">
+        SELECT kind, occurred_at AS occurredAt
+        FROM transcript_entry
+        WHERE kind IN ('user', 'assistant', 'summary')
+        <if test="from != null">AND occurred_at &gt;= #{from}</if>
+        <if test="to != null">AND occurred_at &lt;= #{to}</if>
+        <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
+        ORDER BY occurred_at ASC
+    </select>
+
 </mapper>

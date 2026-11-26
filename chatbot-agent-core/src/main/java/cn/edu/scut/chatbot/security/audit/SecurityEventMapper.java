@@ -24,6 +24,16 @@ public interface SecurityEventMapper {
     long countAllSince(LocalDateTime since);
 
     /**
+     * 事件总数在时间区间内的条数（基线窗口取数：7 日总量 → 小时均值）
+     */
+    long countAllBetween(LocalDateTime from, LocalDateTime to);
+
+    /**
+     * 窗口内 mandateDenied 按用户计数最高的一位（越权尝试集中探针——同用户高频维度）
+     */
+    UserDeniedCount selectTopMandateUser(LocalDateTime since);
+
+    /**
      * 按 traceId 取事件（链路页还原现场：security_event 与 ES Span 互相引用）
      */
     List<SecurityEventDO> selectByTraceId(String traceId);

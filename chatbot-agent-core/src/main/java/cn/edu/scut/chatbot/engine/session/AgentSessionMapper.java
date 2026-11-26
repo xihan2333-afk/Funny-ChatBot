@@ -57,4 +57,16 @@ public interface AgentSessionMapper {
      * 按 runId 取（审计：该 Run 产生了哪些条目）
      */
     List<TranscriptEntryDO> selectByRun(@Param("runId") long runId);
+
+    /**
+     * 会话按水位档位计数（上下文报表）
+     */
+    List<WindowLevelCount> countWindowLevel();
+
+    /**
+     * 窗口内转录 (kind, occurred_at) 轻量序列（被回复率跟帖判定与压缩频率计数）
+     */
+    List<TranscriptKindTime> selectTranscriptKindTimes(@Param("from") java.time.LocalDateTime from,
+                                                       @Param("to") java.time.LocalDateTime to,
+                                                       @Param("groupId") String groupId);
 }

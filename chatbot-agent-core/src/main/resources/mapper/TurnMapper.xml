@@ -120,4 +120,33 @@
           AND accepted_at &lt; #{deadline}
     </select>
 
+    <!-- 时延报表：窗口内已完成 Turn 的端到端时长（毫秒）列表，分位在服务层计算 -->
+    <select id="selectFinishedDurations" resultType="long">
+        SELECT TIMESTAMPDIFF(MICROSECOND, accepted_at, finished_at) DIV 1000
+        FROM turn
+        WHERE finished_at IS NOT NULL
+        <if test="from != null">AND accepted_at &gt;= #{from}</if>
+        <if test="to != null">AND accepted_at &lt;= #{to}</if>
+        <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
+    </select>
+
+    <select id="countByStatus" resultType="cn.edu.scut.chatbot.engine.turn.TurnStatusCount">
+        SELECT status, COUNT(*) AS count
+        FROM turn
+        WHERE 1 = 1
+        <if test="from != null">AND accepted_at &gt;= #{from}</if>
+        <if test="to != null">AND accepted_at &lt;= #{to}</if>
+        <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
+        GROUP BY status
+    </select>
+
+    <select id="countByErrorCodePrefix" resultType="long">
+        SELECT COUNT(*)
+        FROM turn
+        WHERE status = 'FAILED'
+        AND error_code LIKE CONCAT(#{errorCodePrefix}, '%')
+        <if test="from != null">AND accepted_at &gt;= #{from}</if>
+        <if test="to != null">AND accepted_at &lt;= #{to}</if>
+    </select>
+
 </mapper>

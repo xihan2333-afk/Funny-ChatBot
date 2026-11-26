@@ -65,6 +65,11 @@
             <groupId>co.elastic.clients</groupId>
             <artifactId>elasticsearch-java</artifactId>
         </dependency>
+        <!-- ES 客户端运行时依赖 jakarta.json 2.x（Boot BOM 管到 1.1.6 旧线，须显式覆盖） -->
+        <dependency>
+            <groupId>jakarta.json</groupId>
+            <artifactId>jakarta.json-api</artifactId>
+        </dependency>
 
         <!-- OpenTelemetry API 层：javaagent 在场时事件桥复用其安装的 SDK -->
         <dependency>

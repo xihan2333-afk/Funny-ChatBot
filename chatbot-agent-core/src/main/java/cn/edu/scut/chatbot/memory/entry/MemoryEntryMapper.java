@@ -108,4 +108,11 @@ public interface MemoryEntryMapper {
      * 有 active 条目的群清单（衰减批任务分群遍历）
      */
     List<MemoryGroupDO> selectActiveGroups();
+
+    /**
+     * 窗口内沉淀量计数（社交报表：sediment_at 落在窗口内的条数）
+     */
+    long countSedimentBetween(@Param("from") java.time.LocalDateTime from,
+                              @Param("to") java.time.LocalDateTime to,
+                              @Param("groupId") String groupId);
 }

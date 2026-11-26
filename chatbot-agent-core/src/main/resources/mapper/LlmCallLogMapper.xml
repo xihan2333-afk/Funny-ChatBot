@@ -44,4 +44,51 @@
             LIMIT #{limit}
     </select>
 
+    <!-- 成本报表聚合：维度经 choose 映射为表达式（dim 是内部枚举字符串，不拼接外部输入） -->
+    <select id="selectCostAggregation" resultType="cn.edu.scut.chatbot.llm.slot.LlmCallLogAggregation">
+        SELECT
+        <choose>
+            <when test="dim == 'GROUP'">CONCAT_WS(':', platform, bot_id, group_id)</when>
+            <when test="dim == 'SLOT'">slot_code</when>
+            <when test="dim == 'MODEL'">model_id</when>
+            <otherwise>DATE_FORMAT(created_at, '%Y-%m-%d')</otherwise>
+        </choose>
+        AS dimensionKey,
+        COUNT(*) AS calls,
+        COALESCE(SUM(input_tokens), 0) AS inputTokens,
+        COALESCE(SUM(output_tokens), 0) AS outputTokens,
+        COALESCE(SUM(cached_tokens), 0) AS cachedTokens,
+        COALESCE(SUM(cost_amount), 0) AS costAmount
+        FROM llm_call_log
+        WHERE is_replay = 0
+        <if test="from != null">AND created_at &gt;= #{from}</if>
+        <if test="to != null">AND created_at &lt;= #{to}</if>
+        <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
+        GROUP BY 1
+        ORDER BY 1
+    </select>
+
+    <select id="selectTokenTotals" resultType="cn.edu.scut.chatbot.llm.slot.LlmCallLogAggregation">
+        SELECT COUNT(*) AS calls,
+        COALESCE(SUM(input_tokens), 0) AS inputTokens,
+        COALESCE(SUM(output_tokens), 0) AS outputTokens,
+        COALESCE(SUM(cached_tokens), 0) AS cachedTokens,
+        COALESCE(SUM(cost_amount), 0) AS costAmount
+        FROM llm_call_log
+        WHERE is_replay = 0
+        <if test="from != null">AND created_at &gt;= #{from}</if>
+        <if test="to != null">AND created_at &lt;= #{to}</if>
+        <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
+    </select>
+
+    <select id="selectTtftMillis" resultType="long">
+        SELECT ttft_ms
+        FROM llm_call_log
+        WHERE ttft_ms IS NOT NULL
+        AND is_replay = 0
+        <if test="from != null">AND created_at &gt;= #{from}</if>
+        <if test="to != null">AND created_at &lt;= #{to}</if>
+        <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
+    </select>
+
 </mapper>

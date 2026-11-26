@@ -86,4 +86,20 @@ public interface TriggerEventMapper {
                                   @Param("groupId") String groupId,
                                   @Param("eventType") String eventType,
                                   @Param("since") java.time.LocalDateTime since);
+
+    /**
+     * 窗口内按决策层 × 决策结果计数（质量报表：L1 通过率与保守降级率——
+     * layer=L1 且 decision=accept 为通过；layer=degrade 为保守降级）
+     */
+    List<DecisionLayerCount> countDecisionByWindow(@Param("from") java.time.LocalDateTime from,
+                                                   @Param("to") java.time.LocalDateTime to,
+                                                   @Param("groupId") String groupId);
+
+    /**
+     * 窗口内内部触发按决策结果计数（社交报表：主动开口 accept 占比）
+     */
+    List<DecisionLayerCount> countInternalDecision(@Param("eventType") String eventType,
+                                                   @Param("from") java.time.LocalDateTime from,
+                                                   @Param("to") java.time.LocalDateTime to,
+                                                   @Param("groupId") String groupId);
 }

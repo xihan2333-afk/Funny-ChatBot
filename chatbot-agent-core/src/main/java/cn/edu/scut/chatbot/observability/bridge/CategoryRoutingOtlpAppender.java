@@ -37,6 +37,17 @@ public final class CategoryRoutingOtlpAppender extends OpenTelemetryAppender {
     }
 
     /**
+     * 钳制安装前缓存条数（FR-026 观测装配失败不阻断业务）：父类 1.33.6-alpha 的
+     * start() 直接拿该值当 ArrayBlockingQueue 容量，0 或负数会抛 IllegalArgumentException
+     * ——而 logback 配置错误会被 Spring Boot 升级为启动失败，观测装配反过来拖垮业务。
+     * 父类 setter 原样存储不做校验，这里在入口把非法值钳到最小合法容量 1。
+     */
+    @Override
+    public void setNumLogsCapturedBeforeOtelInstall(int numLogsCapturedBeforeOtelInstall) {
+        super.setNumLogsCapturedBeforeOtelInstall(Math.max(1, numLogsCapturedBeforeOtelInstall));
+    }
+
+    /**
      * 类别判定（包可见：单测直接断言判定口径）
      */
     static String categoryOf(String loggerName) {

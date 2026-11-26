@@ -1,0 +1,108 @@
+# otel-collector 配置（005-observability-safety，设计方案 2.5.5 / R19）：
+# OTLP gRPC/HTTP 接收 → memory_limiter + batch → 按 log.category 与信号类型
+# 路由到 logs-agent-* / logs-system-* / traces 数据流 → elasticsearch exporter。
+#
+# 版本：otel/opentelemetry-collector-contrib:0.98.0（依赖矩阵登记，3.1.2）。
+# ES 地址凭证经环境变量注入（compose 的 ES_ENDPOINT / ES_USERNAME / ES_PASSWORD，
+# 出处 .env——凭证不出服务端，浏览器不直连 ES）。
+#
+# 路由拓扑（与 logback-spring.xml 的 log.category 语义对齐）：
+#   traces        → elasticsearch/traces     → traces-* 数据流
+#   logs(category=agent)  → elasticsearch/logs-agent   → logs-agent-* 数据流
+#   logs(其它/默认)       → elasticsearch/logs-system  → logs-system-* 数据流
+# 指标（javaagent 的 JVM 指标）0.98 的 elasticsearch exporter 不支持，列演进项；
+# runtime 报表在支持版本升级后自动有数据（查询侧读 metrics-* 数据流）。
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # 内存上限 384MB（设计方案 2.8 资源预算）：超限先拒收再丢数据，保护宿主机
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 384
+  batch:
+    timeout: 5s
+    send_batch_size: 512
+
+connectors:
+  # 日志按 log.category 路由（应用侧 CategoryRoutingOtlpAppender 附加的属性；
+  # 缺失或非 agent 一律走 system 数据流——宁落 system 不丢日志）
+  routing/logs:
+    default_pipelines: [ logs/system ]
+    table:
+      - context: log
+        condition: attributes["log.category"] == "agent"
+        pipelines: [ logs/agent ]
+
+exporters:
+  elasticsearch/traces:
+    endpoints: [ "${env:ES_ENDPOINT}" ]
+    username: "${env:ES_USERNAME}"
+    password: "${env:ES_PASSWORD}"
+    # traces 数据流由 es-init 的索引模板建（traces-*，ILM 14 天）
+    traces_index: traces
+    traces_create_template: false
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 0s
+
+  elasticsearch/logs-agent:
+    endpoints: [ "${env:ES_ENDPOINT}" ]
+    username: "${env:ES_USERNAME}"
+    password: "${env:ES_PASSWORD}"
+    logs_index: logs-agent
+    logs_dynamic_index:
+      enabled: false
+    mapping:
+      mode: ecs
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 0s
+
+  elasticsearch/logs-system:
+    endpoints: [ "${env:ES_ENDPOINT}" ]
+    username: "${env:ES_USERNAME}"
+    password: "${env:ES_PASSWORD}"
+    logs_index: logs-system
+    logs_dynamic_index:
+      enabled: false
+    mapping:
+      mode: ecs
+    retry_on_failure:
+      enabled: true
+      initial_interval: 1s
+      max_interval: 30s
+      max_elapsed_time: 0s
+
+service:
+  telemetry:
+    metrics:
+      address: 0.0.0.0:8888
+  pipelines:
+    # traces 直通（无按类路由需求）
+    traces:
+      receivers: [ otlp ]
+      processors: [ memory_limiter, batch ]
+      exporters: [ elasticsearch/traces ]
+    # 日志先经路由再进各自管道（routing connector 是中转站，自身不带 processor）
+    logs/router:
+      receivers: [ otlp ]
+      exporters: [ routing/logs ]
+    logs/agent:
+      receivers: [ routing/logs ]
+      processors: [ memory_limiter, batch ]
+      exporters: [ elasticsearch/logs-agent ]
+    logs/system:
+      receivers: [ routing/logs ]
+      processors: [ memory_limiter, batch ]
+      exporters: [ elasticsearch/logs-system ]

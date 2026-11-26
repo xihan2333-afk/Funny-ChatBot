@@ -36,4 +36,22 @@
         ORDER BY id
     </select>
 
+    <select id="countAllBetween" resultType="long">
+        SELECT COUNT(*)
+        FROM security_event
+        WHERE created_at &gt;= #{from}
+          AND created_at &lt; #{to}
+    </select>
+
+    <select id="selectTopMandateUser" resultType="cn.edu.scut.chatbot.security.audit.UserDeniedCount">
+        SELECT user_id AS userId, COUNT(*) AS count
+        FROM security_event
+        WHERE event_kind = 'mandateDenied'
+          AND user_id IS NOT NULL
+          AND created_at &gt;= #{since}
+        GROUP BY user_id
+        ORDER BY count DESC
+            LIMIT 1
+    </select>
+
 </mapper>

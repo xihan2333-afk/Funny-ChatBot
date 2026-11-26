@@ -186,4 +186,27 @@
           AND event_type = #{eventType}
           AND occurred_at &gt;= #{since}
     </select>
+    <!-- 质量报表：L1 通过率（L1+accept）与保守降级率（degrade 层）的计数输入 -->
+    <select id="countDecisionByWindow" resultType="cn.edu.scut.chatbot.engine.intake.DecisionLayerCount">
+        SELECT decision_layer AS decisionLayer, decision, COUNT(*) AS count
+        FROM trigger_event
+        WHERE decision_layer IN ('L1', 'degrade')
+        <if test="from != null">AND occurred_at &gt;= #{from}</if>
+        <if test="to != null">AND occurred_at &lt;= #{to}</if>
+        <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
+        GROUP BY decision_layer, decision
+    </select>
+
+    <select id="countInternalDecision" resultType="cn.edu.scut.chatbot.engine.intake.DecisionLayerCount">
+        SELECT decision, COUNT(*) AS count
+        FROM trigger_event
+        WHERE trigger_kind = 'internal'
+        AND event_type = #{eventType}
+        AND decision IN ('accept', 'ignore')
+        <if test="from != null">AND occurred_at &gt;= #{from}</if>
+        <if test="to != null">AND occurred_at &lt;= #{to}</if>
+        <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
+        GROUP BY decision
+    </select>
+
 </mapper>

@@ -162,4 +162,13 @@
         WHERE status = 'active'
     </select>
 
+    <select id="countSedimentBetween" resultType="long">
+        SELECT COUNT(*)
+        FROM memory_entry
+        WHERE sediment_at IS NOT NULL
+        <if test="from != null">AND sediment_at &gt;= #{from}</if>
+        <if test="to != null">AND sediment_at &lt;= #{to}</if>
+        <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
+    </select>
+
 </mapper>
