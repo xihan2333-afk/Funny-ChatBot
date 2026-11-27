@@ -54,13 +54,29 @@ public class EvalAdminController {
     public List<EvalBatchView> listBatches(
             @RequestParam(required = false) String batchKind,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return evalTaskService.listBatches(batchKind, page, size);
+            @RequestParam(defaultValue = "20") int size,
+            javax.servlet.http.HttpServletResponse response) {
+        List<EvalBatchView> items = evalTaskService.listBatches(batchKind, page, size);
+        long approxTotal = items.size() < size ? (long) page * size + items.size() : (long) (page + 1) * size + 1;
+        response.setHeader("X-Total-Count", String.valueOf(approxTotal));
+        return items;
     }
 
     @GetMapping("/batches/{batchId}")
     public EvalBatchView getBatch(@PathVariable long batchId) {
         return evalTaskService.getBatch(batchId);
+    }
+
+    @GetMapping("/batches/{batchId}/summary")
+    public EvalTaskService.EvalBatchSummaryView getBatchSummary(@PathVariable long batchId) {
+        return evalTaskService.getBatchSummary(batchId);
+    }
+
+    @GetMapping("/blind-queue")
+    public List<EvalResultView> listBlindQueue(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "20") int size) {
+        return evalTaskService.listBlindQueue(page, size);
     }
 
     @GetMapping("/results")
@@ -129,6 +145,12 @@ public class EvalAdminController {
         caseAdminService.reviseRubric(caseId, newRubricJson);
     }
 
+    @PutMapping("/cases/{caseId}")
+    public EvalCaseView updateCase(@PathVariable long caseId,
+                                   @RequestBody EvalCaseAdminService.UpdateCaseCommand command) {
+        return caseAdminService.updateCase(caseId, command);
+    }
+
     @PostMapping("/cases/{caseId}/discard")
     public void discard(@PathVariable long caseId) {
         caseAdminService.discard(caseId);
@@ -154,7 +176,11 @@ public class EvalAdminController {
     public List<EvalCaseView> listCases(@RequestParam(required = false) String caseType,
                                         @RequestParam(required = false) String status,
                                         @RequestParam(defaultValue = "0") int page,
-                                        @RequestParam(defaultValue = "20") int size) {
-        return caseAdminService.listCases(caseType, status, page, size);
+                                        @RequestParam(defaultValue = "20") int size,
+                                        javax.servlet.http.HttpServletResponse response) {
+        List<EvalCaseView> items = caseAdminService.listCases(caseType, status, page, size);
+        long approxTotal = items.size() < size ? (long) page * size + items.size() : (long) (page + 1) * size + 1;
+        response.setHeader("X-Total-Count", String.valueOf(approxTotal));
+        return items;
     }
 }

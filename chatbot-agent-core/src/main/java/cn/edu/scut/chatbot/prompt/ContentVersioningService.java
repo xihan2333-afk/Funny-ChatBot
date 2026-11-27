@@ -1,12 +1,19 @@
 package cn.edu.scut.chatbot.prompt;
 
-import cn.edu.scut.chatbot.exception.CommandRejectedException;
 import cn.edu.scut.chatbot.bootstrap.JsonMappers;
+import cn.edu.scut.chatbot.engine.intake.HttpToolConfigDO;
+import cn.edu.scut.chatbot.engine.intake.HttpToolConfigMapper;
+import cn.edu.scut.chatbot.engine.intake.ToolConfigDO;
+import cn.edu.scut.chatbot.engine.intake.ToolConfigMapper;
+import cn.edu.scut.chatbot.exception.CommandRejectedException;
+import cn.edu.scut.chatbot.infrastructure.eventbus.ConfigRefreshedEvent;
 import cn.edu.scut.chatbot.skill.SkillDO;
 import cn.edu.scut.chatbot.skill.SkillMapper;
 import cn.edu.scut.chatbot.tool.registry.ToolRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -41,13 +48,29 @@ public class ContentVersioningService {
     private final PromptFragmentMapper fragmentMapper;
     private final SkillMapper skillMapper;
     private final ToolRegistry toolRegistry;
+    private final ToolConfigMapper toolConfigMapper;
+    private final HttpToolConfigMapper httpToolConfigMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     public ContentVersioningService(PromptFragmentMapper fragmentMapper,
                                     SkillMapper skillMapper,
                                     @Lazy ToolRegistry toolRegistry) {
+        this(fragmentMapper, skillMapper, toolRegistry, null, null, null);
+    }
+
+    @Autowired
+    public ContentVersioningService(PromptFragmentMapper fragmentMapper,
+                                    SkillMapper skillMapper,
+                                    @Lazy ToolRegistry toolRegistry,
+                                    ToolConfigMapper toolConfigMapper,
+                                    HttpToolConfigMapper httpToolConfigMapper,
+                                    ApplicationEventPublisher eventPublisher) {
         this.fragmentMapper = fragmentMapper;
         this.skillMapper = skillMapper;
         this.toolRegistry = toolRegistry;
+        this.toolConfigMapper = toolConfigMapper;
+        this.httpToolConfigMapper = httpToolConfigMapper;
+        this.eventPublisher = eventPublisher;
     }
 
     // =====================================================================
@@ -91,7 +114,7 @@ public class ContentVersioningService {
         fragment.setVersionNo(nextVersion);
         fragment.setStatus("published");
         fragmentMapper.updateFragment(fragment);
-        toolRegistry.refresh("片段发布：" + fragmentKey);   // 触发依赖缓存刷新（新 Run 生效）
+        publishRefresh(ContentVersionDO.KIND_FRAGMENT, "片段发布：" + fragmentKey);
     }
 
     /**
@@ -170,6 +193,163 @@ public class ContentVersioningService {
         skill.setVersionNo(nextVersion);
         skill.setStatus("published");
         skillMapper.updateSkill(skill);
+        publishRefresh(ContentVersionDO.KIND_SKILL, "Skill 发布：" + name);
+    }
+
+    @Transactional
+    public void rollbackSkill(String name, int targetVersion) {
+        SkillDO skill = skillMapper.selectByName(name);
+        if (skill == null) {
+            throw new CommandRejectedException("Skill 不存在：" + name);
+        }
+        ContentVersionDO snapshot = fragmentMapper.selectVersion(
+                ContentVersionDO.KIND_SKILL, skill.getId(), targetVersion);
+        if (snapshot == null) {
+            throw new CommandRejectedException("Skill 版本不存在：" + name + " v" + targetVersion);
+        }
+        SkillDO old = readSnapshot(snapshot, SkillDO.class);
+        old.setName(name);
+        old.setId(skill.getId());
+        old.setStatus("draft");
+        old.setVersionNo(skill.getVersionNo());
+        skillMapper.updateSkill(old);
+        publishSkill(name);
+    }
+
+    public List<ContentVersionDO> skillVersions(String name) {
+        SkillDO skill = skillMapper.selectByName(name);
+        if (skill == null) {
+            return List.of();
+        }
+        return fragmentMapper.selectVersions(ContentVersionDO.KIND_SKILL, skill.getId());
+    }
+
+    // =====================================================================
+    // 内置工具配置（tool_config）
+    // =====================================================================
+
+    public ToolConfigDO saveToolConfigDraft(String toolName, boolean enabled, String paramsJson) {
+        ToolConfigDO existing = toolConfigMapper.selectByName(toolName);
+        ToolConfigDO row = existing != null ? existing : new ToolConfigDO();
+        row.setToolName(toolName);
+        row.setEnabled(enabled ? 1 : 0);
+        row.setParams(paramsJson);
+        row.setStatus("draft");
+        row.setVersionNo(existing != null && existing.getVersionNo() != null ? existing.getVersionNo() : 1);
+        toolConfigMapper.upsertToolConfig(row);
+        return toolConfigMapper.selectByName(toolName);
+    }
+
+    @Transactional
+    public void publishToolConfig(String toolName) {
+        ToolConfigDO cfg = toolConfigMapper.selectByName(toolName);
+        if (cfg == null) {
+            throw new CommandRejectedException("内置工具配置不存在：" + toolName);
+        }
+        int nextVersion = (cfg.getVersionNo() == null ? 0 : cfg.getVersionNo()) + 1;
+        publishSnapshot(ContentVersionDO.KIND_TOOL_CONFIG, cfg.getId(), nextVersion, cfg);
+        cfg.setVersionNo(nextVersion);
+        cfg.setStatus("published");
+        toolConfigMapper.upsertToolConfig(cfg);
+        publishRefresh(ContentVersionDO.KIND_TOOL_CONFIG, "内置工具发布：" + toolName);
+    }
+
+    @Transactional
+    public void rollbackToolConfig(String toolName, int targetVersion) {
+        ToolConfigDO cfg = toolConfigMapper.selectByName(toolName);
+        if (cfg == null) {
+            throw new CommandRejectedException("内置工具配置不存在：" + toolName);
+        }
+        ContentVersionDO snapshot = fragmentMapper.selectVersion(
+                ContentVersionDO.KIND_TOOL_CONFIG, cfg.getId(), targetVersion);
+        if (snapshot == null) {
+            throw new CommandRejectedException("内置工具版本不存在：" + toolName + " v" + targetVersion);
+        }
+        ToolConfigDO old = readSnapshot(snapshot, ToolConfigDO.class);
+        old.setToolName(toolName);
+        old.setId(cfg.getId());
+        old.setStatus("draft");
+        old.setVersionNo(cfg.getVersionNo());
+        toolConfigMapper.upsertToolConfig(old);
+        publishToolConfig(toolName);
+    }
+
+    public List<ContentVersionDO> toolConfigVersions(String toolName) {
+        ToolConfigDO cfg = toolConfigMapper.selectByName(toolName);
+        if (cfg == null) {
+            return List.of();
+        }
+        return fragmentMapper.selectVersions(ContentVersionDO.KIND_TOOL_CONFIG, cfg.getId());
+    }
+
+    // =====================================================================
+    // HTTP 泛化工具配置（http_tool_config）
+    // =====================================================================
+
+    public HttpToolConfigDO saveHttpToolConfigDraft(HttpToolConfigDO config) {
+        HttpToolConfigDO existing = httpToolConfigMapper.selectByName(config.getToolName());
+        if (existing == null) {
+            config.setStatus("draft");
+            config.setVersionNo(1);
+            httpToolConfigMapper.insertConfig(config);
+        } else {
+            config.setId(existing.getId());
+            config.setStatus("draft");
+            config.setVersionNo(existing.getVersionNo() != null ? existing.getVersionNo() : 1);
+            httpToolConfigMapper.updateConfig(config);
+        }
+        return httpToolConfigMapper.selectByName(config.getToolName());
+    }
+
+    @Transactional
+    public void publishHttpToolConfig(String toolName) {
+        HttpToolConfigDO cfg = httpToolConfigMapper.selectByName(toolName);
+        if (cfg == null) {
+            throw new CommandRejectedException("HTTP 工具配置不存在：" + toolName);
+        }
+        int nextVersion = (cfg.getVersionNo() == null ? 0 : cfg.getVersionNo()) + 1;
+        publishSnapshot(ContentVersionDO.KIND_HTTP_TOOL_CONFIG, cfg.getId(), nextVersion, cfg);
+        cfg.setVersionNo(nextVersion);
+        cfg.setStatus("published");
+        httpToolConfigMapper.updateConfig(cfg);
+        publishRefresh(ContentVersionDO.KIND_HTTP_TOOL_CONFIG, "HTTP 工具发布：" + toolName);
+    }
+
+    @Transactional
+    public void rollbackHttpToolConfig(String toolName, int targetVersion) {
+        HttpToolConfigDO cfg = httpToolConfigMapper.selectByName(toolName);
+        if (cfg == null) {
+            throw new CommandRejectedException("HTTP 工具配置不存在：" + toolName);
+        }
+        ContentVersionDO snapshot = fragmentMapper.selectVersion(
+                ContentVersionDO.KIND_HTTP_TOOL_CONFIG, cfg.getId(), targetVersion);
+        if (snapshot == null) {
+            throw new CommandRejectedException("HTTP 工具版本不存在：" + toolName + " v" + targetVersion);
+        }
+        HttpToolConfigDO old = readSnapshot(snapshot, HttpToolConfigDO.class);
+        old.setToolName(toolName);
+        old.setId(cfg.getId());
+        old.setStatus("draft");
+        old.setVersionNo(cfg.getVersionNo());
+        httpToolConfigMapper.updateConfig(old);
+        publishHttpToolConfig(toolName);
+    }
+
+    public List<ContentVersionDO> httpToolConfigVersions(String toolName) {
+        HttpToolConfigDO cfg = httpToolConfigMapper.selectByName(toolName);
+        if (cfg == null) {
+            return List.of();
+        }
+        return fragmentMapper.selectVersions(ContentVersionDO.KIND_HTTP_TOOL_CONFIG, cfg.getId());
+    }
+
+    private void publishRefresh(String entityKind, String reason) {
+        if (toolRegistry != null) {
+            toolRegistry.refresh(reason);
+        }
+        if (eventPublisher != null) {
+            eventPublisher.publishEvent(new ConfigRefreshedEvent(entityKind, reason));
+        }
     }
 
     // =====================================================================

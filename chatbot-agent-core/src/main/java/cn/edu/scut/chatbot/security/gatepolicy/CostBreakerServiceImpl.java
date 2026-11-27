@@ -140,6 +140,7 @@ public class CostBreakerServiceImpl implements CostBreakerService {
         detail.put("operator", operator != null ? operator : "admin");
         detail.put("wasTripped", Boolean.TRUE.equals(deleted));
         recorder.record(SecurityEventKind.CIRCUIT_BREAK, dimsOf(effectiveScope), detail, null);
+        recorder.record(SecurityEventKind.ADMIN_OPERATE, dimsOf(effectiveScope), detail, null);
         log.info("成本熔断已手动解除 scope={} operator={} wasTripped={}", effectiveScope, operator, deleted);
     }
 

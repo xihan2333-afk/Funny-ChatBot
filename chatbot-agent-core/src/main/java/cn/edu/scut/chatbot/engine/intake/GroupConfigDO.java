@@ -19,6 +19,11 @@ public class GroupConfigDO {
     private String groupId;
 
     /**
+     * 当前绑定的人格 ID，指向 persona.id
+     */
+    private Long personaId;
+
+    /**
      * 用户黑名单 JSON 数组（L0 强制忽略）
      */
     private String userBlacklist;
@@ -39,6 +44,11 @@ public class GroupConfigDO {
     private String disabledTools;
 
     /**
+     * 群级工具运行参数覆盖 JSON
+     */
+    private String toolParamOverrides;
+
+    /**
      * 群级禁用技能名列表 JSON 数组（技能两级开关的第二级——目录渲染过滤）
      */
     private String disabledSkills;
@@ -47,6 +57,11 @@ public class GroupConfigDO {
      * 群规（prompt 群上下文层素材）
      */
     private String groupRules;
+
+    /**
+     * 群级主动行为参数覆盖 JSON
+     */
+    private String proactiveParams;
 
     /**
      * 销毁时会话历史沉淀策略：keep 保留 / discard 丢弃

@@ -20,4 +20,13 @@
                 COALESCE(#{enabled}, 1))
     </insert>
 
+    <update id="update">
+        UPDATE model_config
+        SET display_name = #{displayName},
+            capability   = #{capability},
+            price        = #{price},
+            enabled      = #{enabled}
+        WHERE id = #{id}
+    </update>
+
 </mapper>

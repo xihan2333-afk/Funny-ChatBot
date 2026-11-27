@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.engine.intake.GroupPersonaHistoryMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO group_persona_history
+        (platform, bot_id, group_id, from_persona_id, to_persona_id, operator, reason, switched_at)
+        VALUES (#{platform}, #{botId}, #{groupId}, #{fromPersonaId}, #{toPersonaId}, #{operator}, #{reason},
+                #{switchedAt})
+    </insert>
+
+    <select id="selectByGroup" resultType="cn.edu.scut.chatbot.engine.intake.GroupPersonaHistoryDO">
+        SELECT id,
+               platform,
+               bot_id          AS botId,
+               group_id        AS groupId,
+               from_persona_id AS fromPersonaId,
+               to_persona_id   AS toPersonaId,
+               operator,
+               reason,
+               switched_at     AS switchedAt
+        FROM group_persona_history
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+        ORDER BY switched_at DESC, id DESC
+            LIMIT #{limit}
+        OFFSET #{offset}
+    </select>
+
+    <select id="countByGroup" resultType="long">
+        SELECT COUNT(*)
+        FROM group_persona_history
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+    </select>
+
+</mapper>

@@ -19,4 +19,13 @@
                 COALESCE(#{enabled}, 1))
     </insert>
 
+    <update id="update">
+        UPDATE provider_config
+        SET display_name = #{displayName},
+            dialect      = #{dialect},
+            base_url     = #{baseUrl},
+            enabled      = #{enabled}
+        WHERE id = #{id}
+    </update>
+
 </mapper>

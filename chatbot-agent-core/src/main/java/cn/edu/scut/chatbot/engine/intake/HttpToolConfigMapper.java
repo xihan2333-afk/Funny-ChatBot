@@ -17,5 +17,7 @@ public interface HttpToolConfigMapper {
 
     int insertConfig(HttpToolConfigDO config);
 
+    int updateConfig(HttpToolConfigDO config);
+
     int deleteByName(@Param("toolName") String toolName);
 }

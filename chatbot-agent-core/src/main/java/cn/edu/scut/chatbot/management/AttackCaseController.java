@@ -26,12 +26,22 @@ public class AttackCaseController {
     }
 
     @PostMapping
+    @SkipAutoAudit
     public Map<String, Long> create(@RequestBody AttackBatchService.AttackCaseCreateRequest request,
                                     @RequestAttribute(name = ManagementAuthFilter.ATTR_OPERATOR, required = false) String operator) {
         return Map.of("id", attackBatchService.createCase(request, operator));
     }
 
+    @PutMapping("/{id}")
+    @SkipAutoAudit
+    public void update(@PathVariable long id,
+                       @RequestBody AttackBatchService.AttackCaseCreateRequest request,
+                       @RequestAttribute(name = ManagementAuthFilter.ATTR_OPERATOR, required = false) String operator) {
+        attackBatchService.updateCase(id, request, operator);
+    }
+
     @PutMapping("/{id}/enabled")
+    @SkipAutoAudit
     public void setEnabled(@PathVariable long id,
                            @RequestParam boolean enabled,
                            @RequestAttribute(name = ManagementAuthFilter.ATTR_OPERATOR, required = false) String operator) {
@@ -39,12 +49,14 @@ public class AttackCaseController {
     }
 
     @DeleteMapping("/{id}")
+    @SkipAutoAudit
     public void delete(@PathVariable long id,
                        @RequestAttribute(name = ManagementAuthFilter.ATTR_OPERATOR, required = false) String operator) {
         attackBatchService.deleteCase(id, operator);
     }
 
     @PostMapping("/run")
+    @AuditAction(target = "attack_case", action = "run", summary = "执行注入对抗测试")
     public AttackBatchService.AttackBatchReport run(@RequestBody(required = false) RunAttackRequest request) {
         if (request == null || request.caseIds() == null || request.caseIds().isEmpty()) {
             return attackBatchService.runAllEnabled();

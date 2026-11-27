@@ -52,6 +52,32 @@ public class PrivacyErasureServiceImpl implements PrivacyErasureService {
     }
 
     @Override
+    public ErasurePreview preview(String platform, String botId, String groupId, String userId) {
+        requireNonBlank(platform, "platform");
+        requireNonBlank(botId, "botId");
+        requireNonBlank(groupId, "groupId");
+        requireNonBlank(userId, "userId");
+
+        List<Long> memoryIds = memoryEntryMapper.selectIdsByGroupAndUser(platform, botId, groupId, userId);
+        int memCount = memoryIds != null ? memoryIds.size() : 0;
+        boolean profileExists = userProfileMapper.selectByGroupAndUser(platform, botId, groupId, userId) != null;
+        int relCount = (int) memberRelationMapper.selectByGroup(platform, botId, groupId).stream()
+                .filter(r -> userId.equals(r.getUserIdA()) || userId.equals(r.getUserIdB()))
+                .count();
+        int transcriptCount = 0;
+        var session = agentSessionMapper.selectByGroup(platform, botId, groupId);
+        if (session != null) {
+            for (var entry : agentSessionMapper.selectOrdered(session.getId())) {
+                if ("user".equals(entry.getKind()) && entry.getPayload() != null
+                        && entry.getPayload().contains(userId)) {
+                    transcriptCount++;
+                }
+            }
+        }
+        return new ErasurePreview(platform, botId, groupId, userId, memCount, profileExists, relCount, transcriptCount);
+    }
+
+    @Override
     @Transactional
     public ErasureReport erase(String platform, String botId, String groupId, String userId, String operator) {
         requireNonBlank(platform, "platform");

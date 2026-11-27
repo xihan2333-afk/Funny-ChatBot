@@ -1,7 +1,6 @@
 package cn.edu.scut.chatbot.engine;
 
-import cn.edu.scut.chatbot.engine.intake.GroupMapper;
-import cn.edu.scut.chatbot.engine.intake.TriggerEventMapper;
+import cn.edu.scut.chatbot.engine.intake.*;
 import cn.edu.scut.chatbot.engine.lifecycle.GroupLifecycleManager;
 import cn.edu.scut.chatbot.engine.outbox.OutboxWriter;
 import cn.edu.scut.chatbot.engine.session.AgentSessionMapper;
@@ -9,7 +8,9 @@ import cn.edu.scut.chatbot.engine.session.SessionManager;
 import cn.edu.scut.chatbot.engine.task.TaskCoordinator;
 import cn.edu.scut.chatbot.engine.task.TaskDO;
 import cn.edu.scut.chatbot.engine.task.TaskMapper;
+import cn.edu.scut.chatbot.engine.turn.GroupTurnStats;
 import cn.edu.scut.chatbot.engine.turn.TurnCoordinator;
+import cn.edu.scut.chatbot.engine.turn.TurnMapper;
 import cn.edu.scut.chatbot.management.EngineCommandFacades;
 import cn.edu.scut.chatbot.management.EngineViews;
 import org.springframework.context.annotation.Bean;
@@ -229,5 +230,40 @@ public class EngineFacadeAdapter {
                 trigger.getTriggerKind(), trigger.getEventType(), trigger.getDedupKey(),
                 trigger.getDecision(), trigger.getDecisionLayer(), trigger.getDecisionReason(),
                 trigger.getTurnId());
+    }
+
+    @Bean
+    EngineCommandFacades.EngineOverviewQueries engineOverviewQueries(GroupMapper groupMapper,
+                                                                     GroupConfigMapper groupConfigMapper,
+                                                                     TurnMapper turnMapper,
+                                                                     java.time.Clock clock) {
+        return () -> {
+            java.time.LocalDateTime since = java.time.LocalDateTime.now(clock).minusHours(24);
+            java.util.Map<String, GroupTurnStats> statsByGroup = new java.util.HashMap<>();
+            for (GroupTurnStats st : turnMapper.countGroupTurnsSince(since)) {
+                statsByGroup.put(st.getPlatform() + ":" + st.getBotId() + ":" + st.getGroupId(), st);
+            }
+            java.util.List<EngineViews.GroupHealthView> result = new java.util.ArrayList<>();
+            for (GroupDO g : groupMapper.selectAll()) {
+                GroupConfigDO cfg = groupConfigMapper.selectByGroup(g.getPlatform(), g.getBotId(), g.getGroupId());
+                boolean hasPersona = cfg != null && cfg.getPersonaId() != null;
+                String key = g.getPlatform() + ":" + g.getBotId() + ":" + g.getGroupId();
+                GroupTurnStats st = statsByGroup.get(key);
+                long total = st != null ? st.getTotalCount() : 0L;
+                double rate = total > 0 ? (double) st.getSuccessCount() / total : 1.0;
+                result.add(new EngineViews.GroupHealthView(
+                        g.getPlatform(),
+                        g.getBotId(),
+                        g.getGroupId(),
+                        g.getGroupName(),
+                        g.getLifecycle(),
+                        g.getInService() != null && g.getInService() == 1,
+                        hasPersona,
+                        total,
+                        rate
+                ));
+            }
+            return result;
+        };
     }
 }

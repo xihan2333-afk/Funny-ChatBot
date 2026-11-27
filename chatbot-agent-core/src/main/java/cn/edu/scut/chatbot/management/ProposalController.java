@@ -23,8 +23,12 @@ public class ProposalController {
     @GetMapping
     public List<ProposalView> list(@RequestParam(required = false) String status,
                                    @RequestParam(defaultValue = "0") int page,
-                                   @RequestParam(defaultValue = "20") int size) {
-        return proposalService.listProposals(status, page, size);
+                                   @RequestParam(defaultValue = "20") int size,
+                                   javax.servlet.http.HttpServletResponse response) {
+        List<ProposalView> items = proposalService.listProposals(status, page, size);
+        long approxTotal = items.size() < size ? (long) page * size + items.size() : (long) (page + 1) * size + 1;
+        response.setHeader("X-Total-Count", String.valueOf(approxTotal));
+        return items;
     }
 
     @GetMapping("/{proposalId}")

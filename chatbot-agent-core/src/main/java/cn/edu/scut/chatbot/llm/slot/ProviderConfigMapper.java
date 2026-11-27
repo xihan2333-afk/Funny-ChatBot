@@ -13,4 +13,6 @@ public interface ProviderConfigMapper {
     List<ProviderConfigDO> selectAll();
 
     int insert(ProviderConfigDO row);
+
+    int update(ProviderConfigDO row);
 }

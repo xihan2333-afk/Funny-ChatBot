@@ -12,6 +12,7 @@ import java.util.Map;
  */
 @RestController
 @RequestMapping("/api/management/auth")
+@SkipAutoAudit
 public class AdminAuthController {
 
     private final AdminAccountService adminAccountService;

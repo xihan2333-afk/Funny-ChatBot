@@ -102,4 +102,61 @@ public final class EngineCommandFacades {
 
         List<EngineViews.TranscriptEntryView> queryTranscript(long sessionId);
     }
+
+    /**
+     * 总览只读查询（各群近 24 小时 Turn 统计与基础健康状态）
+     */
+    public interface EngineOverviewQueries {
+        List<EngineViews.GroupHealthView> queryGroupHealthLast24h();
+    }
+
+    /**
+     * 群管理与六块配置门面（A2/A6/A7）
+     */
+    public interface EngineGroupAdminFacade {
+        PageResult<EngineViews.GroupListItemView> listGroups(
+                String platform, String botId, String lifecycle, Boolean inService, String keyword, int page, int pageSize);
+
+        void setInService(String platform, String botId, String groupId, boolean inService);
+
+        EngineViews.GroupLifecyclePrecheckView precheckLifecycle(String platform, String botId, String groupId);
+
+        void updateTranscriptRetainPolicy(String platform, String botId, String groupId, boolean retainTranscriptToMemory);
+
+        EngineViews.GroupConfigView getGroupConfig(String platform, String botId, String groupId);
+
+        EngineViews.MandatePrecheckResult precheckMandate(
+                String platform, String botId, String groupId, EngineViews.GroupConfigUpdateRequest request);
+
+        EngineViews.GroupConfigSaveResult saveGroupConfig(
+                String platform, String botId, String groupId, EngineViews.GroupConfigUpdateRequest request, String operator);
+
+        PageResult<EngineViews.GroupPersonaHistoryView> listPersonaHistory(
+                String platform, String botId, String groupId, int page, int pageSize);
+    }
+
+    /**
+     * 运行时监控与受控干预门面（A6）
+     */
+    public interface EngineRuntimeAdminFacade {
+        EngineViews.RuntimeOverviewView runtimeOverview();
+
+        PageResult<EngineViews.TurnSummaryView> listTurns(
+                String platform, String botId, String groupId, String status,
+                String fromIso, String toIso, int page, int pageSize);
+
+        EngineViews.TurnDetailView getTurnDetail(long turnId);
+
+        PageResult<EngineViews.TaskSummaryView> listTasks(
+                String platform, String botId, String groupId, String status,
+                String mandateSource, String category, int page, int pageSize);
+
+        EngineViews.TaskDetailView getTaskDetail(long taskId);
+
+        void retryFailedTask(long taskId, String operator);
+
+        PageResult<EngineViews.DecisionItemView> listDecisions(
+                String platform, String botId, String groupId, String decision,
+                String decisionLayer, String fromIso, String toIso, int page, int pageSize);
+    }
 }

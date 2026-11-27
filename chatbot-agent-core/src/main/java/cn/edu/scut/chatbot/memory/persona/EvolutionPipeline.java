@@ -68,6 +68,13 @@ public class EvolutionPipeline {
     private final IdGenerator idGenerator;
     private final Clock clock;
 
+    private PersonaAdminFeedbackMapper adminFeedbackMapper;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setAdminFeedbackMapper(PersonaAdminFeedbackMapper adminFeedbackMapper) {
+        this.adminFeedbackMapper = adminFeedbackMapper;
+    }
+
     public EvolutionPipeline(PersonaEvolutionSignalsMapper signalsMapper,
                              PersonaEvolutionProposalMapper proposalMapper,
                              PersonaMapper personaMapper,
@@ -234,8 +241,23 @@ public class EvolutionPipeline {
         emotionNode.put("avgIntensity",
                 emotionTotal == 0 ? null : Math.round(weightedIntensity * 100.0 / emotionTotal) / 100.0);
 
-        // 信号五：管理员观察（管理面人工反馈标记——2.7 接入前的既定缺失面）
-        digest.put("adminObservation", "数据不足（管理面观察标记未接入）");
+        // 信号五：管理员观察（管理面人工反馈标记）
+        if (adminFeedbackMapper == null) {
+            digest.put("adminObservation", "数据不足（管理面观察标记未接入）");
+        } else {
+            List<PersonaAdminFeedbackDO> feedbacks = adminFeedbackMapper.selectByPersonaSince(personaId, periodStart);
+            ObjectNode obsNode = digest.putObject("adminObservation");
+            obsNode.put("feedbackCount", feedbacks.size());
+            ArrayNode items = obsNode.putArray("recentItems");
+            feedbacks.stream().limit(20).forEach(fb -> {
+                ObjectNode node = items.addObject();
+                node.put("tag", fb.getTag());
+                node.put("comment", fb.getComment());
+                if (fb.getTraceId() != null) {
+                    node.put("traceId", fb.getTraceId());
+                }
+            });
+        }
 
         try {
             return JsonMappers.shared().writeValueAsString(digest);

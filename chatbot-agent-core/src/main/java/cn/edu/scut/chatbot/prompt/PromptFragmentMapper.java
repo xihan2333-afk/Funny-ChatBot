@@ -13,6 +13,8 @@ import java.util.List;
 @Mapper
 public interface PromptFragmentMapper {
 
+    List<PromptFragmentDO> selectAll();
+
     List<PromptFragmentDO> selectPublishedByLayer(@Param("layer") String layer);
 
     PromptFragmentDO selectByKey(@Param("fragmentKey") String fragmentKey);

@@ -33,7 +33,22 @@ public interface PublishGateService {
                       boolean emptySubset,
                       int totalCases,
                       int passedCases,
-                      List<CaseVerdict> verdicts) {
+                      List<CaseVerdict> verdicts,
+                      boolean redLinePassed,
+                      List<String> experienceWarnings,
+                      String summary) {
+
+        public GateStatus(String status,
+                          boolean emptySubset,
+                          int totalCases,
+                          int passedCases,
+                          List<CaseVerdict> verdicts) {
+            this(status, emptySubset, totalCases, passedCases, verdicts,
+                    !"red".equals(status), List.of(),
+                    "red".equals(status) ? "红线题未通过，需填写越过理由方可发布"
+                            : "yellow".equals(status) ? "体验指标低于阈值，请确认后发布"
+                            : "门禁通过");
+        }
 
         public record CaseVerdict(long caseId, boolean redLine, boolean anyFailed, double passRate) {
         }

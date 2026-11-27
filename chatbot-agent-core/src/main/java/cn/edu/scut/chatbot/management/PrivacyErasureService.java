@@ -8,7 +8,21 @@ package cn.edu.scut.chatbot.management;
  */
 public interface PrivacyErasureService {
 
+    ErasurePreview preview(String platform, String botId, String groupId, String userId);
+
     ErasureReport erase(String platform, String botId, String groupId, String userId, String operator);
+
+    record ErasurePreview(
+            String platform,
+            String botId,
+            String groupId,
+            String userId,
+            int memoryCount,
+            boolean userProfileExists,
+            int relationCount,
+            int transcriptEntryCount
+    ) {
+    }
 
     record ErasureReport(
             String platform,

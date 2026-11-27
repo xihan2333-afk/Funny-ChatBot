@@ -49,6 +49,7 @@ public class GatePolicyAdminServiceImpl implements GatePolicyAdminService {
 
     private TaskCoordinator taskCoordinator;
     private GroupMapper groupMapper;
+    private cn.edu.scut.chatbot.security.audit.SecurityEventMapper securityEventMapper;
 
     public GatePolicyAdminServiceImpl(BlacklistMapper blacklistMapper,
                                       ContentFilterWordMapper wordMapper,
@@ -72,6 +73,11 @@ public class GatePolicyAdminServiceImpl implements GatePolicyAdminService {
     @Autowired(required = false)
     void setGroupMapper(GroupMapper groupMapper) {
         this.groupMapper = groupMapper;
+    }
+
+    @Autowired(required = false)
+    void setSecurityEventMapper(cn.edu.scut.chatbot.security.audit.SecurityEventMapper securityEventMapper) {
+        this.securityEventMapper = securityEventMapper;
     }
 
     @Override
@@ -280,5 +286,130 @@ public class GatePolicyAdminServiceImpl implements GatePolicyAdminService {
 
     private static String operatorOrDefault(String operator) {
         return (operator == null || operator.isBlank()) ? "admin" : operator;
+    }
+
+    private static final String PARAM_FEATURE_PATTERNS = "security.delimit.featurePatterns";
+
+    @Override
+    public List<InjectionRuleView> listInjectionRules() {
+        List<String> patterns = readFeaturePatterns();
+        List<InjectionRuleView> result = new java.util.ArrayList<>(patterns.size());
+        for (int i = 0; i < patterns.size(); i++) {
+            result.add(new InjectionRuleView(i, patterns.get(i)));
+        }
+        return result;
+    }
+
+    @Override
+    public InjectionRuleView addInjectionRule(String pattern, String operator) {
+        if (pattern == null || pattern.isBlank()) {
+            throw new IllegalArgumentException("注入特征规则不能为空");
+        }
+        List<String> patterns = new java.util.ArrayList<>(readFeaturePatterns());
+        patterns.add(pattern.trim());
+        saveFeaturePatterns(patterns, "addInjectionRule", operator);
+        return new InjectionRuleView(patterns.size() - 1, pattern.trim());
+    }
+
+    @Override
+    public InjectionRuleView updateInjectionRule(int index, String pattern, String operator) {
+        if (pattern == null || pattern.isBlank()) {
+            throw new IllegalArgumentException("注入特征规则不能为空");
+        }
+        List<String> patterns = new java.util.ArrayList<>(readFeaturePatterns());
+        if (index < 0 || index >= patterns.size()) {
+            throw new IllegalArgumentException("规则索引越界：" + index);
+        }
+        patterns.set(index, pattern.trim());
+        saveFeaturePatterns(patterns, "updateInjectionRule", operator);
+        return new InjectionRuleView(index, pattern.trim());
+    }
+
+    @Override
+    public void deleteInjectionRule(int index, String operator) {
+        List<String> patterns = new java.util.ArrayList<>(readFeaturePatterns());
+        if (index < 0 || index >= patterns.size()) {
+            throw new IllegalArgumentException("规则索引越界：" + index);
+        }
+        patterns.remove(index);
+        saveFeaturePatterns(patterns, "deleteInjectionRule", operator);
+    }
+
+    @Override
+    public List<FilterCandidateEventView> listFilterCandidates(int limit) {
+        if (securityEventMapper == null) {
+            return List.of();
+        }
+        int safeLimit = Math.max(1, Math.min(limit, 200));
+        return securityEventMapper.selectPage(
+                        SecurityEventKind.CONTENT_FILTERED.code(), null, null, null, null, null, null, null, 0, safeLimit)
+                .stream()
+                .map(e -> new FilterCandidateEventView(
+                        e.getId(), e.getPlatform(), e.getBotId(), e.getGroupId(),
+                        e.getDetail(), e.getTraceId(), e.getCreatedAt()))
+                .toList();
+    }
+
+    @Override
+    public List<FilterCandidateEventView> listBreakerHistory(int limit) {
+        if (securityEventMapper == null) {
+            return List.of();
+        }
+        int safeLimit = Math.max(1, Math.min(limit, 200));
+        return securityEventMapper.selectPage(
+                        SecurityEventKind.CIRCUIT_BREAK.code(), null, null, null, null, null, null, null, 0, safeLimit)
+                .stream()
+                .map(e -> new FilterCandidateEventView(
+                        e.getId(), e.getPlatform(), e.getBotId(), e.getGroupId(),
+                        e.getDetail(), e.getTraceId(), e.getCreatedAt()))
+                .toList();
+    }
+
+    @Override
+    public long promoteFilterWordFromEvent(long eventId, String overrideWord, String level, String operator) {
+        if (securityEventMapper == null) {
+            throw new IllegalStateException("SecurityEventMapper 未装配");
+        }
+        var event = securityEventMapper.selectById(eventId);
+        if (event == null) {
+            throw new cn.edu.scut.chatbot.exception.ChatBotException("mgmt.not_found", "安全事件不存在 id=" + eventId);
+        }
+        String word = overrideWord;
+        if ((word == null || word.isBlank()) && event.getDetail() != null) {
+            try {
+                var node = JsonMappers.shared().readTree(event.getDetail());
+                if (node.hasNonNull("matchedWord")) {
+                    word = node.get("matchedWord").asText();
+                } else if (node.hasNonNull("snippet")) {
+                    word = node.get("snippet").asText();
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        if (word == null || word.isBlank()) {
+            throw new IllegalArgumentException("无法从事件中提取候选词，请手工填写 word");
+        }
+        String finalLevel = (level == null || level.isBlank()) ? "block" : level;
+        return addFilterWord(new FilterWordCreateRequest(word.trim(), finalLevel, "promoted_event_" + eventId), operator);
+    }
+
+    private List<String> readFeaturePatterns() {
+        String raw = systemParams.getString(PARAM_FEATURE_PATTERNS, "[]");
+        try {
+            return JsonMappers.shared().readValue(raw, new TypeReference<>() {
+            });
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
+    private void saveFeaturePatterns(List<String> patterns, String action, String operator) {
+        String json = JsonMappers.valueToStringOrNull(patterns);
+        upsertParam(PARAM_FEATURE_PATTERNS, json != null ? json : "[]", "注入特征检测规则清单");
+        systemParams.refresh();
+        publishRefresh();
+        recorder.record(SecurityEventKind.ADMIN_OPERATE, SecurityDims.none(),
+                Map.of("action", action, "ruleCount", patterns.size(), "operator", operatorOrDefault(operator)),
+                null);
     }
 }

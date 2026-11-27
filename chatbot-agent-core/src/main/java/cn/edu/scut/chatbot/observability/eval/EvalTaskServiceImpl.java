@@ -455,4 +455,59 @@ public class EvalTaskServiceImpl implements EvalTaskService {
      */
     record SampleUnit(TurnDO turn, boolean blind) {
     }
+
+    @Override
+    public EvalBatchSummaryView getBatchSummary(long batchId) {
+        EvalBatchDO batch = batchMapper.selectById(batchId);
+        if (batch == null) {
+            throw new IllegalArgumentException("评估批次不存在：" + batchId);
+        }
+        List<EvalResultDO> rows = resultMapper.selectByBatch(batchId);
+        int total = rows.size();
+        int passed = 0;
+        double scoreSum = 0;
+        int scoredCount = 0;
+        for (EvalResultDO r : rows) {
+            if (EvalResultDO.DECISION_PASS.equals(r.getDecision())) {
+                passed++;
+            }
+            if (r.getScore() != null && !r.getScore().isBlank()) {
+                try {
+                    var node = JsonMappers.shared().readTree(r.getScore());
+                    if (node.hasNonNull("total")) {
+                        scoreSum += node.get("total").asDouble();
+                        scoredCount++;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        double passRate = total == 0 ? 0.0 : (double) passed / total;
+        double avgScore = scoredCount == 0 ? 0.0 : scoreSum / scoredCount;
+        return new EvalBatchSummaryView(
+                batch.getId(), batch.getBatchKind(), batch.getStatus(),
+                total, passed, total - passed, passRate, avgScore,
+                batch.getCostStat(), batch.getFinishedAt() != null ? batch.getFinishedAt().toString() : null);
+    }
+
+    @Override
+    public List<EvalResultView> listBlindQueue(int page, int size) {
+        LocalDateTime now = LocalDateTime.now(clock);
+        List<EvalResultDO> all = resultMapper.selectBlindBetween(now.minusDays(30), now.plusMinutes(1));
+        java.util.Set<String> humanScoredKeys = new java.util.HashSet<>();
+        for (EvalResultDO r : all) {
+            if (r.getJudgeModel() == null) {
+                humanScoredKeys.add(r.getBatchId() + ":" + r.getTurnId() + ":" + r.getCaseId());
+            }
+        }
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(1, Math.min(100, size));
+        return all.stream()
+                .filter(r -> r.getJudgeModel() != null)
+                .filter(r -> !humanScoredKeys.contains(r.getBatchId() + ":" + r.getTurnId() + ":" + r.getCaseId()))
+                .skip((long) safePage * safeSize)
+                .limit(safeSize)
+                .map(EvalResultView::from)
+                .toList();
+    }
 }

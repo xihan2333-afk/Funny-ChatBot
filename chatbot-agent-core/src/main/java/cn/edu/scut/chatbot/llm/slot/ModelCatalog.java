@@ -1,6 +1,7 @@
 package cn.edu.scut.chatbot.llm.slot;
 
 import cn.edu.scut.chatbot.bootstrap.JsonMappers;
+import cn.edu.scut.chatbot.infrastructure.eventbus.ConfigRefreshedEvent;
 import cn.edu.scut.chatbot.loop.ModelCapabilities;
 import cn.edu.scut.chatbot.loop.ModelPrices;
 import cn.edu.scut.chatbot.loop.ModelRef;
@@ -121,6 +122,14 @@ public class ModelCatalog {
     @EventListener(ToolRegistry.ConfigRefreshEvent.class)
     public void refresh() {
         refreshInternal();
+    }
+
+    @EventListener(ConfigRefreshedEvent.class)
+    public void onConfigRefreshed(ConfigRefreshedEvent event) {
+        String kind = event != null ? event.entityKind() : "all";
+        if ("all".equals(kind) || "model".equals(kind)) {
+            refreshInternal();
+        }
     }
 
     /**

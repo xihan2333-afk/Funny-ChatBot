@@ -24,6 +24,14 @@ public interface EvalCaseAdminService {
     void reviseRubric(long caseId, String newRubricJson);
 
     /**
+     * 完整修订评测用例（草稿定稿、场景卡/类型/Rubric 调整；006 US7 / T091）
+     */
+    EvalCaseView updateCase(long caseId, UpdateCaseCommand command);
+
+    record UpdateCaseCommand(String caseType, String scenarioJson, String rubricJson, String status) {
+    }
+
+    /**
      * 低分结果一键沉淀错题（case_type=fault、origin=marked）
      */
     EvalCaseView promoteFromResult(long evalResultId);

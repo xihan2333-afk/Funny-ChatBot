@@ -19,10 +19,21 @@ public interface LlmCallLogMapper {
     /**
      * 成本报表聚合（is_replay=0 线上口径，SC-005）：dim 取 GROUP / SLOT / MODEL / DAY
      */
-    List<LlmCallLogAggregation> selectCostAggregation(@Param("dim") String dim,
-                                                      @Param("from") LocalDateTime from,
-                                                      @Param("to") LocalDateTime to,
-                                                      @Param("groupId") String groupId);
+    default List<LlmCallLogAggregation> selectCostAggregation(String dim,
+                                                              LocalDateTime from,
+                                                              LocalDateTime to,
+                                                              String groupId) {
+        return selectCostAggregationFiltered(dim, from, to, groupId, null, null, null, null);
+    }
+
+    List<LlmCallLogAggregation> selectCostAggregationFiltered(@Param("dim") String dim,
+                                                              @Param("from") LocalDateTime from,
+                                                              @Param("to") LocalDateTime to,
+                                                              @Param("groupId") String groupId,
+                                                              @Param("platform") String platform,
+                                                              @Param("botId") String botId,
+                                                              @Param("slotCode") String slotCode,
+                                                              @Param("modelId") String modelId);
 
     /**
      * 窗口内全表 token 汇总（缓存命中占比口径：cached / input）

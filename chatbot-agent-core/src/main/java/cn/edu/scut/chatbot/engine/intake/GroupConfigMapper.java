@@ -37,4 +37,17 @@ public interface GroupConfigMapper {
                                 @Param("groupId") String groupId,
                                 @Param("allowedMemberTaskCategories") String allowedMemberJson,
                                 @Param("allowedAutonomousCategories") String allowedAutonomousJson);
+
+    /**
+     * 更新群全量六块配置
+     */
+    int updateFullConfig(GroupConfigDO config);
+
+    /**
+     * 更新销毁时会话历史沉淀策略（keep / discard）
+     */
+    int updateTranscriptRetainPolicy(@Param("platform") String platform,
+                                     @Param("botId") String botId,
+                                     @Param("groupId") String groupId,
+                                     @Param("policy") String policy);
 }

@@ -13,4 +13,6 @@ public interface ModelConfigMapper {
     List<ModelConfigDO> selectAll();
 
     int insert(ModelConfigDO row);
+
+    int update(ModelConfigDO row);
 }

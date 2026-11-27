@@ -6,7 +6,15 @@ package cn.edu.scut.chatbot.infrastructure.es;
 public record CostQuery(CostDim dim,
                         Long fromMillis,
                         Long toMillis,
-                        String groupId) {
+                        String groupId,
+                        String platform,
+                        String botId,
+                        String slotCode,
+                        String modelId) {
+
+    public CostQuery(CostDim dim, Long fromMillis, Long toMillis, String groupId) {
+        this(dim, fromMillis, toMillis, groupId, null, null, null, null);
+    }
 
     public enum CostDim {
         /**

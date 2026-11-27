@@ -35,17 +35,20 @@ public class AlertAdminController {
     }
 
     @PostMapping("/rules")
+    @SkipAutoAudit
     public Map<String, Long> createRule(@RequestBody AlertAdminService.RuleUpsertRequest request) {
         return Map.of("id", alertAdminService.createRule(request));
     }
 
     @PutMapping("/rules/{id}")
+    @SkipAutoAudit
     public void updateRule(@PathVariable long id,
                            @RequestBody AlertAdminService.RuleUpsertRequest request) {
         alertAdminService.updateRule(id, request);
     }
 
     @DeleteMapping("/rules/{id}")
+    @SkipAutoAudit
     public void deleteRule(@PathVariable long id) {
         alertAdminService.deleteRule(id);
     }
@@ -56,11 +59,16 @@ public class AlertAdminController {
     public List<AlertNotificationView> listNotifications(@RequestParam(required = false) String level,
                                                          @RequestParam(required = false) Boolean unreadOnly,
                                                          @RequestParam(defaultValue = "0") int page,
-                                                         @RequestParam(defaultValue = "50") int size) {
-        return notificationService.list(level, unreadOnly, page, size);
+                                                         @RequestParam(defaultValue = "50") int size,
+                                                         javax.servlet.http.HttpServletResponse response) {
+        List<AlertNotificationView> items = notificationService.list(level, unreadOnly, page, size);
+        long approxTotal = items.size() < size ? (long) page * size + items.size() : (long) (page + 1) * size + 1;
+        response.setHeader("X-Total-Count", String.valueOf(approxTotal));
+        return items;
     }
 
     @PostMapping("/notifications/{id}/ack")
+    @AuditAction(target = "alert_notification", action = "ack", summary = "确认告警通知已读")
     public void acknowledge(@PathVariable long id) {
         notificationService.acknowledge(id);
     }

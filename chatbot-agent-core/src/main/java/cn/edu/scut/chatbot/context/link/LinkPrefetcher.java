@@ -80,10 +80,16 @@ public class LinkPrefetcher {
      * setter 注入：未装配（隔离单测上下文）时零检测。
      */
     private cn.edu.scut.chatbot.security.delimit.DelimitGuard delimitGuard;
+    private LinkCardMapper linkCardMapper;
 
     @Autowired(required = false)
     void setDelimitGuard(cn.edu.scut.chatbot.security.delimit.DelimitGuard guard) {
         this.delimitGuard = guard;
+    }
+
+    @Autowired(required = false)
+    void setLinkCardMapper(LinkCardMapper linkCardMapper) {
+        this.linkCardMapper = linkCardMapper;
     }
 
     /**
@@ -188,6 +194,19 @@ public class LinkPrefetcher {
         if (cached != null) {
             return cached;   // 缓存命中：同一 URL 不重复预取（卡片条目复用——追加转录由调用方决定）
         }
+        if (linkCardMapper != null) {
+            LinkCardDO dbCard = linkCardMapper.selectByUrlHash(sha256(normalizedUrl));
+            if (dbCard != null && dbCard.getExpiresAt() != null
+                    && dbCard.getExpiresAt().isAfter(java.time.LocalDateTime.now(clock))) {
+                LinkCardEntry entry = new LinkCardEntry(
+                        Long.toUnsignedString(idGenerator.nextId()), clock.instant(), 35,
+                        normalizedUrl, normalizedUrl, sharerUserId, LinkCardEntry.LEVEL_CARD,
+                        dbCard.getTitle() != null ? dbCard.getTitle() : normalizedUrl,
+                        dbCard.getSiteName(), dbCard.getSummary());
+                cardCache.put(normalizedUrl, entry);
+                return entry;
+            }
+        }
         if (gatePolicyService != null) {
             try {
                 String host = URI.create(normalizedUrl).getHost();
@@ -217,6 +236,22 @@ public class LinkPrefetcher {
                     normalizedUrl, normalizedUrl, sharerUserId, LinkCardEntry.LEVEL_CARD,
                     title != null ? title : normalizedUrl, siteName, summary);
             cardCache.put(normalizedUrl, card);
+            if (linkCardMapper != null) {
+                try {
+                    LinkCardDO row = new LinkCardDO();
+                    row.setNormalizedUrl(normalizedUrl);
+                    row.setUrlHash(sha256(normalizedUrl));
+                    String host = URI.create(normalizedUrl).getHost();
+                    row.setDomain(host != null ? host : "");
+                    row.setTitle(card.title());
+                    row.setSiteName(card.siteName());
+                    row.setSummary(card.summary());
+                    row.setSource("og_meta");
+                    row.setExpiresAt(java.time.LocalDateTime.now(clock).plusDays(30));
+                    linkCardMapper.upsert(row);
+                } catch (Exception ignored) {
+                }
+            }
             return card;
         } catch (Exception e) {
             // 预取失败不阻塞主流程（卡片是增强信息——失败安静跳过）
@@ -248,5 +283,64 @@ public class LinkPrefetcher {
         String textOnly = html.replaceAll("(?is)<(script|style)[^>]*>.*?</(script|style)>", " ");
         String stripped = TAG_STRIP.matcher(textOnly).replaceAll(" ").replaceAll("\\s+", " ").trim();
         return stripped.length() > maxChars ? stripped.substring(0, maxChars) : stripped;
+    }
+
+    public cn.edu.scut.chatbot.management.PageResult<LinkCardView> listLinkCards(
+            String domain, String fromIso, String toIso, int page, int pageSize) {
+        if (linkCardMapper == null) {
+            return cn.edu.scut.chatbot.management.PageResult.of(java.util.List.of(), 0, page, pageSize);
+        }
+        int p = cn.edu.scut.chatbot.management.PageResult.normalizePage(page);
+        int ps = cn.edu.scut.chatbot.management.PageResult.normalizePageSize(pageSize);
+        java.time.LocalDateTime from = parseIso(fromIso);
+        java.time.LocalDateTime to = parseIso(toIso);
+        long total = linkCardMapper.countPaged(domain, from, to);
+        java.util.List<LinkCardView> items = linkCardMapper
+                .selectPaged(domain, from, to, cn.edu.scut.chatbot.management.PageResult.offset(p, ps), ps).stream()
+                .map(c -> new LinkCardView(
+                        c.getId(), c.getNormalizedUrl(), c.getDomain(), c.getTitle(),
+                        c.getSiteName(), c.getSummary(), c.getSource(),
+                        gatePolicyService != null && gatePolicyService.isDomainBlocked(c.getDomain()),
+                        c.getExpiresAt() != null ? c.getExpiresAt().toString() : null,
+                        c.getCreatedAt() != null ? c.getCreatedAt().toString() : null))
+                .toList();
+        return cn.edu.scut.chatbot.management.PageResult.of(items, total, p, ps);
+    }
+
+    public void deleteLinkCard(long id) {
+        if (linkCardMapper == null) {
+            return;
+        }
+        LinkCardDO existing = linkCardMapper.selectById(id);
+        if (existing == null) {
+            throw new cn.edu.scut.chatbot.exception.ChatBotException("mgmt.not_found", "链接卡片不存在 id=" + id);
+        }
+        linkCardMapper.deleteById(id);
+        cardCache.remove(existing.getNormalizedUrl());
+        bodyExcerpts.remove(existing.getNormalizedUrl());
+    }
+
+    private static java.time.LocalDateTime parseIso(String iso) {
+        if (iso == null || iso.isBlank()) return null;
+        try {
+            return java.time.LocalDateTime.parse(iso);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static String sha256(String input) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256")
+                    .digest(input.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            return java.util.HexFormat.of().formatHex(digest);
+        } catch (Exception e) {
+            return Integer.toHexString(input.hashCode());
+        }
+    }
+
+    public record LinkCardView(Long id, String normalizedUrl, String domain, String title,
+                               String siteName, String summary, String source, boolean domainBlocked,
+                               String expiresAt, String createdAt) {
     }
 }

@@ -51,6 +51,17 @@
         WHERE id = #{id}
     </update>
 
+    <update id="updateCase">
+        UPDATE attack_case
+        SET channel     = #{channel},
+            title       = #{title},
+            payload     = #{payload},
+            scenario    = #{scenario},
+            expectation = #{expectation},
+            assertion   = #{assertion}
+        WHERE id = #{id}
+    </update>
+
     <update id="updateEnabled">
         UPDATE attack_case
         SET enabled = #{enabled}

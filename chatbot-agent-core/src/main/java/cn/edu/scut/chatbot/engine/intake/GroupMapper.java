@@ -26,6 +26,11 @@ public interface GroupMapper {
                           @Param("groupId") String groupId);
 
     /**
+     * 全部已发现群
+     */
+    java.util.List<GroupDO> selectAll();
+
+    /**
      * 全部服务中的群（调度器状态扫描：in_service=1 且 ACTIVE）
      */
     java.util.List<GroupDO> selectAllInService();

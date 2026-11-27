@@ -134,6 +134,30 @@ public class EvalCaseAdminServiceImpl implements EvalCaseAdminService {
         return promote(evalResultId, EvalCaseDO.TYPE_GOLDEN, EvalResultDO.DECISION_PASS);
     }
 
+    @Override
+    public EvalCaseView updateCase(long caseId, UpdateCaseCommand command) {
+        EvalCaseDO existing = caseMapper.selectById(caseId);
+        if (existing == null) {
+            throw new IllegalArgumentException("评测用例不存在：" + caseId);
+        }
+        String nextType = command.caseType() != null && !command.caseType().isBlank()
+                ? command.caseType() : existing.getCaseType();
+        String nextScenario = command.scenarioJson() != null && !command.scenarioJson().isBlank()
+                ? command.scenarioJson() : existing.getScenario();
+        String nextRubric = command.rubricJson() != null && !command.rubricJson().isBlank()
+                ? command.rubricJson() : existing.getRubric();
+        String nextStatus = command.status() != null && !command.status().isBlank()
+                ? command.status() : existing.getStatus();
+        ScenarioCard.validate(nextScenario);
+        RubricItem.parseRubric(nextRubric);
+        int nextVersion = existing.getRubricVersion() != null ? existing.getRubricVersion() : 1;
+        if (!nextRubric.equals(existing.getRubric())) {
+            nextVersion++;
+        }
+        caseMapper.updateCase(caseId, nextType, nextScenario, nextRubric, nextVersion, nextStatus);
+        return EvalCaseView.from(caseMapper.selectById(caseId));
+    }
+
     /**
      * 结果 → 三层资产：错题要 badcase、黄金要 pass（判定方向校验）；材料自含
      * （有 Turn 的线上样本经轨迹组装回填摘要与来源链路，无 Turn 的盲评对照行降级

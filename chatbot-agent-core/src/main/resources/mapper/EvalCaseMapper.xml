@@ -43,6 +43,16 @@
         WHERE id = #{id}
     </update>
 
+    <update id="updateCase">
+        UPDATE eval_case
+        SET case_type      = #{caseType},
+            scenario       = #{scenario},
+            rubric         = #{rubric},
+            rubric_version = #{rubricVersion},
+            status         = #{status}
+        WHERE id = #{id}
+    </update>
+
     <select id="selectByFilter" resultType="cn.edu.scut.chatbot.observability.eval.EvalCaseDO">
         SELECT id,
         platform AS platform,

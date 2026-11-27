@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.llm.slot.ReembedJobMapper">
+
+    <insert id="insert">
+        INSERT INTO reembed_job
+        (id, from_model_id, to_model_id, from_dimension, to_dimension, status,
+         total_count, processed_count, failed_count, error_message, operator, started_at, finished_at)
+        VALUES (#{id}, #{fromModelId}, #{toModelId}, #{fromDimension}, #{toDimension}, #{status},
+                #{totalCount}, #{processedCount}, #{failedCount}, #{errorMessage}, #{operator}, #{startedAt},
+                #{finishedAt})
+    </insert>
+
+    <update id="updateProgress">
+        UPDATE reembed_job
+        SET status          = #{status},
+            total_count     = #{totalCount},
+            processed_count = #{processedCount},
+            failed_count    = #{failedCount},
+            error_message   = #{errorMessage},
+            started_at      = #{startedAt},
+            finished_at     = #{finishedAt}
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectById" resultType="cn.edu.scut.chatbot.llm.slot.ReembedJobDO">
+        SELECT id,
+               from_model_id   AS fromModelId,
+               to_model_id     AS toModelId,
+               from_dimension  AS fromDimension,
+               to_dimension    AS toDimension,
+               status,
+               total_count     AS totalCount,
+               processed_count AS processedCount,
+               failed_count    AS failedCount,
+               error_message   AS errorMessage,
+               operator,
+               started_at      AS startedAt,
+               finished_at     AS finishedAt,
+               created_at      AS createdAt,
+               updated_at      AS updatedAt
+        FROM reembed_job
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectAllPaged" resultType="cn.edu.scut.chatbot.llm.slot.ReembedJobDO">
+        SELECT id,
+               from_model_id   AS fromModelId,
+               to_model_id     AS toModelId,
+               from_dimension  AS fromDimension,
+               to_dimension    AS toDimension,
+               status,
+               total_count     AS totalCount,
+               processed_count AS processedCount,
+               failed_count    AS failedCount,
+               error_message   AS errorMessage,
+               operator,
+               started_at      AS startedAt,
+               finished_at     AS finishedAt,
+               created_at      AS createdAt,
+               updated_at      AS updatedAt
+        FROM reembed_job
+        ORDER BY created_at DESC, id DESC
+            LIMIT #{limit}
+        OFFSET #{offset}
+    </select>
+
+    <select id="countAll" resultType="long">
+        SELECT COUNT(*)
+        FROM reembed_job
+    </select>
+
+    <select id="countActive" resultType="long">
+        SELECT COUNT(*)
+        FROM reembed_job
+        WHERE status IN ('pending', 'running')
+    </select>
+
+</mapper>

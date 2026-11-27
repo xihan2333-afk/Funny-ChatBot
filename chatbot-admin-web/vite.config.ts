@@ -1,6 +1,6 @@
-import { fileURLToPath, URL } from 'node:url'
+import {fileURLToPath, URL} from 'node:url'
 
-import { defineConfig } from 'vite'
+import {defineConfig} from 'vitest/config'
 import vue from '@vitejs/plugin-vue'
 import vueDevTools from 'vite-plugin-vue-devtools'
 
@@ -9,10 +9,22 @@ export default defineConfig({
   plugins: [
     vue(),
     vueDevTools(),
-  ],
+  ] as any,
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
   },
+    server: {
+        proxy: {
+            '/api/management': {
+                target: 'http://127.0.0.1:8080',
+                changeOrigin: true,
+            },
+        },
+    },
+    test: {
+        environment: 'happy-dom',
+        globals: true,
+    },
 })

@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.memory.persona.PersonaAdminFeedbackMapper">
+
+    <insert id="insert">
+        INSERT INTO persona_admin_feedback
+        (id, persona_id, platform, bot_id, group_id, tag, comment, trace_id, operator, created_at)
+        VALUES (#{id}, #{personaId}, #{platform}, #{botId}, #{groupId}, #{tag}, #{comment}, #{traceId}, #{operator},
+                #{createdAt})
+    </insert>
+
+    <select id="selectByPersonaSince" resultType="cn.edu.scut.chatbot.memory.persona.PersonaAdminFeedbackDO">
+        SELECT id,
+               persona_id AS personaId,
+               platform,
+               bot_id     AS botId,
+               group_id   AS groupId,
+               tag,
+               comment,
+               trace_id   AS traceId,
+               operator,
+               created_at AS createdAt
+        FROM persona_admin_feedback
+        WHERE persona_id = #{personaId}
+          AND created_at &gt;= #{since}
+        ORDER BY created_at DESC
+    </select>
+
+    <select id="selectByPersona" resultType="cn.edu.scut.chatbot.memory.persona.PersonaAdminFeedbackDO">
+        SELECT id,
+               persona_id AS personaId,
+               platform,
+               bot_id     AS botId,
+               group_id   AS groupId,
+               tag,
+               comment,
+               trace_id   AS traceId,
+               operator,
+               created_at AS createdAt
+        FROM persona_admin_feedback
+        WHERE persona_id = #{personaId}
+        ORDER BY created_at DESC
+    </select>
+
+</mapper>
