@@ -32,7 +32,9 @@ public class AttackAssertionEvaluator {
             AttackCaseDO.CHANNEL_IMAGE,
             AttackCaseDO.CHANNEL_WEB,
             AttackCaseDO.CHANNEL_MEMORY,
-            AttackCaseDO.CHANNEL_CARD
+            AttackCaseDO.CHANNEL_CARD,
+            AttackCaseDO.CHANNEL_HTTP,
+            AttackCaseDO.CHANNEL_EMOJI
     );
 
     private final OutboundScreenService outboundScreenService;

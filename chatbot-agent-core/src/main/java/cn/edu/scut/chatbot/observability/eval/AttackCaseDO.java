@@ -21,6 +21,8 @@ public class AttackCaseDO {
     public static final String CHANNEL_WEB = "web";
     public static final String CHANNEL_MEMORY = "memory";
     public static final String CHANNEL_CARD = "card";
+    public static final String CHANNEL_HTTP = "http";
+    public static final String CHANNEL_EMOJI = "emoji";
 
     private Long id;
 

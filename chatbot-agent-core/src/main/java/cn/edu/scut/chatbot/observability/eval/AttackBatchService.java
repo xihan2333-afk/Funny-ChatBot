@@ -26,6 +26,8 @@ public interface AttackBatchService {
 
     long createCase(AttackCaseCreateRequest request, String operator);
 
+    void updateCase(long id, AttackCaseCreateRequest request, String operator);
+
     void setEnabled(long id, boolean enabled, String operator);
 
     void deleteCase(long id, String operator);

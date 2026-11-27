@@ -34,6 +34,8 @@ public class HttpToolConfigDO {
 
     private Integer timeoutMillis;
 
+    private String speed;
+
     private Integer enabled;
 
     private String status;

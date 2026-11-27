@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.context.link.LinkCardMapper">
+
+    <select id="selectById" resultType="cn.edu.scut.chatbot.context.link.LinkCardDO">
+        SELECT id,
+               normalized_url AS normalizedUrl,
+               url_hash       AS urlHash, domain, title, site_name AS siteName, summary, source, expires_at AS expiresAt, created_at AS createdAt, updated_at AS updatedAt
+        FROM link_card
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByUrlHash" resultType="cn.edu.scut.chatbot.context.link.LinkCardDO">
+        SELECT id,
+               normalized_url AS normalizedUrl,
+               url_hash       AS urlHash, domain, title, site_name AS siteName, summary, source, expires_at AS expiresAt, created_at AS createdAt, updated_at AS updatedAt
+        FROM link_card
+        WHERE url_hash = #{urlHash}
+    </select>
+
+    <insert id="upsert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO link_card
+        (normalized_url, url_hash, domain, title, site_name, summary, source, expires_at)
+        VALUES (#{normalizedUrl}, #{urlHash}, #{domain}, #{title}, #{siteName}, #{summary}, #{source},
+                #{expiresAt}) ON DUPLICATE KEY
+        UPDATE
+            title =
+        VALUES (title), site_name =
+        VALUES (site_name), summary =
+        VALUES (summary), source =
+        VALUES (source), expires_at =
+        VALUES (expires_at)
+    </insert>
+
+    <delete id="deleteById">
+        DELETE
+        FROM link_card
+        WHERE id = #{id}
+    </delete>
+
+    <select id="selectPaged" resultType="cn.edu.scut.chatbot.context.link.LinkCardDO">
+        SELECT id, normalized_url AS normalizedUrl, url_hash AS urlHash, domain, title,
+        site_name AS siteName, summary, source, expires_at AS expiresAt,
+        created_at AS createdAt, updated_at AS updatedAt
+        FROM link_card
+        <where>
+            <if test="domain != null and domain != ''">AND domain LIKE CONCAT('%', #{domain}, '%')</if>
+            <if test="from != null">AND created_at &gt;= #{from}</if>
+            <if test="to != null">AND created_at &lt; #{to}</if>
+        </where>
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countPaged" resultType="long">
+        SELECT COUNT(*) FROM link_card
+        <where>
+            <if test="domain != null and domain != ''">AND domain LIKE CONCAT('%', #{domain}, '%')</if>
+            <if test="from != null">AND created_at &gt;= #{from}</if>
+            <if test="to != null">AND created_at &lt; #{to}</if>
+        </where>
+    </select>
+
+</mapper>

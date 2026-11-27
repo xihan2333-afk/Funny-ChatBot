@@ -52,10 +52,16 @@ public class PublishGateServiceImpl implements PublishGateService {
      * 任一硬防线击穿直接判红牌）
      */
     private cn.edu.scut.chatbot.observability.eval.AttackBatchService attackBatchService;
+    private cn.edu.scut.chatbot.memory.persona.PersonaVersioningService personaVersioningService;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     void setAttackBatchService(cn.edu.scut.chatbot.observability.eval.AttackBatchService service) {
         this.attackBatchService = service;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setPersonaVersioningService(cn.edu.scut.chatbot.memory.persona.PersonaVersioningService service) {
+        this.personaVersioningService = service;
     }
 
     public PublishGateServiceImpl(EvalCaseMapper caseMapper,
@@ -117,8 +123,37 @@ public class PublishGateServiceImpl implements PublishGateService {
                             "gateStatus", status.status(),
                             "overrideReason", overrideReason),
                     null);
+        } else {
+            securityEventRecorder.record(SecurityEventKind.ADMIN_OPERATE, SecurityDims.none(),
+                    Map.of("action", "publishGatePublish",
+                            "intention", intention,
+                            "gateStatus", status.status()),
+                    null);
         }
-        contentVersioningService.publishFragment(intention);
+        routePublish(intention, overrideReason);
+    }
+
+    private void routePublish(String intention, String overrideReason) {
+        int colon = intention.indexOf(':');
+        if (colon < 0) {
+            contentVersioningService.publishFragment(intention);
+            return;
+        }
+        String entityKind = intention.substring(0, colon);
+        String entityKey = intention.substring(colon + 1);
+        switch (entityKind) {
+            case "fragment" -> contentVersioningService.publishFragment(entityKey);
+            case "skill" -> contentVersioningService.publishSkill(entityKey);
+            case "tool_config" -> contentVersioningService.publishToolConfig(entityKey);
+            case "http_tool_config" -> contentVersioningService.publishHttpToolConfig(entityKey);
+            case "persona" -> {
+                if (personaVersioningService == null) {
+                    throw new IllegalStateException("PersonaVersioningService 未装配");
+                }
+                personaVersioningService.publishPersona(Long.parseLong(entityKey), "admin", overrideReason);
+            }
+            default -> throw new IllegalArgumentException("不支持的发布实体类型：" + entityKind);
+        }
     }
 
     /**
@@ -127,10 +162,15 @@ public class PublishGateServiceImpl implements PublishGateService {
      */
     private List<EvalCaseDO> mustPassSubset() {
         List<EvalCaseDO> subset = new ArrayList<>();
+        int experienceCount = 0;
         for (EvalCaseDO caze : caseMapper.selectReadyByTypes(
                 List.of(EvalCaseDO.TYPE_SEED, EvalCaseDO.TYPE_GOLDEN, EvalCaseDO.TYPE_FAULT), 200)) {
-            if (RubricItem.parseRubric(caze.getRubric()).stream().anyMatch(RubricItem::redLine)) {
+            boolean hasRedLine = RubricItem.parseRubric(caze.getRubric()).stream().anyMatch(RubricItem::redLine);
+            if (hasRedLine) {
                 subset.add(caze);
+            } else if (experienceCount < 20) {
+                subset.add(caze);
+                experienceCount++;
             }
         }
         return subset;
@@ -142,14 +182,25 @@ public class PublishGateServiceImpl implements PublishGateService {
      */
     private GateStatus evaluate(String intention, List<EvalCaseDO> mustPass) {
         List<GateStatus.CaseVerdict> verdicts = new ArrayList<>();
+        List<String> experienceWarnings = new ArrayList<>();
         int passedCases = 0;
+        boolean redLinePassed = true;
+        boolean anyYellow = false;
+
         for (EvalCaseDO caze : mustPass) {
-            ReplayReport report = replayService.run(caze, 1);   // 门禁单次执行（Pass@k 聚合归手动回测）
+            boolean isRedLine = RubricItem.parseRubric(caze.getRubric()).stream().anyMatch(RubricItem::redLine);
+            ReplayReport report = replayService.run(caze, 1);
             boolean anyFailed = report.details().stream()
                     .anyMatch(d -> !"pass".equals(d.decision()));
-            verdicts.add(new GateStatus.CaseVerdict(caze.getId(), true, anyFailed, report.passRate()));
+            verdicts.add(new GateStatus.CaseVerdict(caze.getId(), isRedLine, anyFailed, report.passRate()));
             if (!anyFailed) {
                 passedCases++;
+            } else if (isRedLine) {
+                redLinePassed = false;
+            } else if (report.passRate() < YELLOW_PASS_RATE) {
+                anyYellow = true;
+                experienceWarnings.add("体验用例 #" + caze.getId() + " 通过率 "
+                        + String.format("%.2f", report.passRate()) + " 低于阈值 " + YELLOW_PASS_RATE);
             }
         }
         boolean attackBreached = false;
@@ -158,18 +209,22 @@ public class PublishGateServiceImpl implements PublishGateService {
                     attackBatchService.runAllEnabled();
             if (!attackReport.batchPassed()) {
                 attackBreached = true;
+                redLinePassed = false;
                 verdicts.add(new GateStatus.CaseVerdict(
                         -attackReport.batchId(), true, true, 0.0));
             }
         }
         if (mustPass.isEmpty() && !attackBreached) {
-            return new GateStatus("green", true, 0, 0, List.of());
+            return new GateStatus("green", true, 0, 0, List.of(),
+                    true, List.of(), "必过子集为空，门禁默认通过");
         }
-        boolean anyRed = attackBreached || verdicts.stream().anyMatch(GateStatus.CaseVerdict::anyFailed);
-        String status = anyRed ? "red"
-                : verdicts.stream().anyMatch(v -> v.passRate() < YELLOW_PASS_RATE) ? "yellow"
-                : "green";
-        return new GateStatus(status, mustPass.isEmpty(), verdicts.size(), passedCases, List.copyOf(verdicts));
+        boolean anyRed = attackBreached || !redLinePassed;
+        String status = anyRed ? "red" : (anyYellow ? "yellow" : "green");
+        String summary = anyRed
+                ? "红线题未通过，需填写越过理由方可发布"
+                : (anyYellow ? "体验指标低于阈值，请确认后发布" : "门禁全部通过");
+        return new GateStatus(status, mustPass.isEmpty(), verdicts.size(), passedCases,
+                List.copyOf(verdicts), redLinePassed, List.copyOf(experienceWarnings), summary);
     }
 
     /**

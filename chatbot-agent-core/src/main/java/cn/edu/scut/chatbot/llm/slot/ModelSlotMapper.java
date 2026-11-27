@@ -13,4 +13,6 @@ public interface ModelSlotMapper {
     List<ModelSlotDO> selectAll();
 
     int insert(ModelSlotDO row);
+
+    int upsert(ModelSlotDO row);
 }

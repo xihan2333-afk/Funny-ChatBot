@@ -100,11 +100,17 @@ class ArchitectureRulesTest {
         ArchRule notIntoDoOrMapper = noClasses()
                 .that().resideInAPackage("..chatbot.management..")
                 .should().dependOnClassesThat(
-                        resideInAnyPackage("..chatbot.observability..", "..chatbot.security..")
+                        resideInAnyPackage(
+                                "..chatbot.observability..",
+                                "..chatbot.security..",
+                                "..chatbot.llm..",
+                                "..chatbot.memory..",
+                                "..chatbot.prompt..",
+                                "..chatbot.skill..",
+                                "..chatbot.context..")
                                 .and(simpleNameEndingWith("DO").or(simpleNameEndingWith("Mapper"))))
                 .allowEmptyShould(true)
-                .because("management 只调用领域门面接口（observe-query / eval-and-flywheel / "
-                        + "security-gate / admin-auth 契约），不得触达 DO / Mapper——"
+                .because("management 只调用领域门面接口，不得触达任何领域的 DO / Mapper——"
                         + "管理平台不得持有第二条写状态通道");
 
         notIntoDoOrMapper.check(classes);

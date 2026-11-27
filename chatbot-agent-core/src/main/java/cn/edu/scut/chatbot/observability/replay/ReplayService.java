@@ -158,6 +158,80 @@ public class ReplayService {
      * 同步执行一道题的 Pass@k 重放（后台化由调用方决定——门禁侧在自己的线程里调）
      */
     public ReplayReport run(EvalCaseDO caze, Integer kOverride) {
+        return runWithContext(caze, kOverride, null, null);
+    }
+
+    /**
+     * 批量重放（006 US7 / T093）：支持多题批量、versionRef 版本覆盖标识（{entityKind}:{entityKey}:v{n}）
+     * 与 experimentId 对照实验归组。
+     */
+    public BatchReplayReport runBatch(List<Long> caseIds, Integer kOverride,
+                                      String versionRef, String experimentId) {
+        List<EvalCaseDO> cases = new ArrayList<>();
+        if (caseIds != null && !caseIds.isEmpty()) {
+            for (Long id : caseIds) {
+                if (id != null) {
+                    EvalCaseDO c = caseMapper.selectById(id);
+                    if (c != null) cases.add(c);
+                }
+            }
+        } else {
+            cases.addAll(caseMapper.selectReadyByTypes(
+                    List.of(EvalCaseDO.TYPE_SEED, EvalCaseDO.TYPE_GOLDEN, EvalCaseDO.TYPE_FAULT), 50));
+        }
+        String expId = (experimentId == null || experimentId.isBlank())
+                ? "exp-" + idGenerator.nextId() : experimentId;
+        List<ReplayReport> reports = new ArrayList<>();
+        int passedCases = 0;
+        for (EvalCaseDO c : cases) {
+            ReplayReport report = runWithContext(c, kOverride, versionRef, expId);
+            reports.add(report);
+            if (report.passRate() >= 1.0) {
+                passedCases++;
+            }
+        }
+        double passRate = cases.isEmpty() ? 0.0 : (double) passedCases / cases.size();
+        return new BatchReplayReport(expId, versionRef, cases.size(), passedCases, passRate, reports);
+    }
+
+    public List<EvalBatchView> listReplayBatches(int page, int size, String experimentId) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.max(1, Math.min(100, size));
+        List<EvalBatchDO> rows = batchMapper.selectPage(EvalBatchDO.KIND_REPLAY, safePage * safeSize, safeSize);
+        return rows.stream()
+                .filter(b -> experimentId == null || experimentId.isBlank()
+                        || (b.getScope() != null && b.getScope().contains(experimentId)))
+                .map(EvalBatchView::from)
+                .toList();
+    }
+
+    public BatchReplayComparison getExperimentComparison(String experimentId) {
+        List<EvalBatchDO> rows = batchMapper.selectPage(EvalBatchDO.KIND_REPLAY, 0, 200).stream()
+                .filter(b -> b.getScope() != null && b.getScope().contains(experimentId))
+                .toList();
+        List<EvalBatchView> views = rows.stream().map(EvalBatchView::from).toList();
+        return new BatchReplayComparison(experimentId, views.size(), views);
+    }
+
+    public record BatchReplayReport(
+            String experimentId,
+            String versionRef,
+            int totalCases,
+            int passedCases,
+            double passRate,
+            List<ReplayReport> reports
+    ) {
+    }
+
+    public record BatchReplayComparison(
+            String experimentId,
+            int batchCount,
+            List<EvalBatchView> batches
+    ) {
+    }
+
+    private ReplayReport runWithContext(EvalCaseDO caze, Integer kOverride,
+                                        String versionRef, String experimentId) {
         int k = kOverride != null && kOverride > 0 ? kOverride
                 : Math.max(1, params.getInt("observe.eval.passAtK", 3));
         if (!concurrencyGate.tryAcquire()) {
@@ -182,6 +256,12 @@ public class ReplayService {
             scope.put("passAtK", k);
             scope.put("platform", triple.platform());
             scope.put("groupId", triple.groupId());
+            if (versionRef != null && !versionRef.isBlank()) {
+                scope.put("versionRef", versionRef);
+            }
+            if (experimentId != null && !experimentId.isBlank()) {
+                scope.put("experimentId", experimentId);
+            }
             batch.setScope(scope.toString());
             batch.setStatus(EvalBatchDO.STATUS_RUNNING);
             batchMapper.insert(batch);
@@ -408,13 +488,22 @@ public class ReplayService {
                     List.of(new cn.edu.scut.chatbot.contract.message.TextPart(
                             cn.edu.scut.chatbot.contract.message.TextPart.TYPE_TEXT,
                             "[图片描述] " + delimitedVision + "\n" + triggerText))));
-        } else if (AttackCaseDO.CHANNEL_WEB.equals(channel) || AttackCaseDO.CHANNEL_CARD.equals(channel)) {
+        } else if (AttackCaseDO.CHANNEL_WEB.equals(channel)
+                || AttackCaseDO.CHANNEL_CARD.equals(channel)
+                || AttackCaseDO.CHANNEL_HTTP.equals(channel)) {
             String delimitedWeb = cn.edu.scut.chatbot.security.delimit.DelimitHeaders.wrap(
                     attack.getPayload(), cn.edu.scut.chatbot.security.delimit.DelimitHeaders.Src.WEB);
             msgs.add(new UserMessage("atk-web-" + idGenerator.nextId(), clock.instant(), 50, null, "u-attacker",
                     List.of(new cn.edu.scut.chatbot.contract.message.TextPart(
                             cn.edu.scut.chatbot.contract.message.TextPart.TYPE_TEXT,
                             delimitedWeb + "\n" + triggerText))));
+        } else if (AttackCaseDO.CHANNEL_EMOJI.equals(channel)) {
+            String delimitedEmoji = cn.edu.scut.chatbot.security.delimit.DelimitHeaders.wrap(
+                    attack.getPayload(), cn.edu.scut.chatbot.security.delimit.DelimitHeaders.Src.VISION);
+            msgs.add(new UserMessage("atk-emoji-" + idGenerator.nextId(), clock.instant(), 50, null, "u-attacker",
+                    List.of(new cn.edu.scut.chatbot.contract.message.TextPart(
+                            cn.edu.scut.chatbot.contract.message.TextPart.TYPE_TEXT,
+                            "[表情包描述] " + delimitedEmoji + "\n" + triggerText))));
         } else if (AttackCaseDO.CHANNEL_NICKNAME.equals(channel)) {
             String delimitedNick = cn.edu.scut.chatbot.security.delimit.DelimitHeaders.wrap(
                     attack.getPayload(), cn.edu.scut.chatbot.security.delimit.DelimitHeaders.Src.VARIABLE);

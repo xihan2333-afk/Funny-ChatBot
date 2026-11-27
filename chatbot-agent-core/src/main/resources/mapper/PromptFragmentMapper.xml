@@ -3,6 +3,23 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="cn.edu.scut.chatbot.prompt.PromptFragmentMapper">
 
+    <select id="selectAll" resultType="cn.edu.scut.chatbot.prompt.PromptFragmentDO">
+        SELECT id,
+               fragment_key   AS fragmentKey,
+               layer,
+               form_fit       AS formFit,
+               title,
+               content,
+               variables,
+               builtin_locked AS builtinLocked,
+               status,
+               version_no     AS versionNo,
+               created_at     AS createdAt,
+               updated_at     AS updatedAt
+        FROM prompt_fragment
+        ORDER BY layer, id
+    </select>
+
     <select id="selectPublishedByLayer" resultType="cn.edu.scut.chatbot.prompt.PromptFragmentDO">
         SELECT id,
                fragment_key   AS fragmentKey,

@@ -23,6 +23,8 @@ public interface AttackCaseMapper {
 
     int updateVerdict(@Param("id") long id, @Param("lastVerdict") String lastVerdict);
 
+    int updateCase(AttackCaseDO row);
+
     int updateEnabled(@Param("id") long id, @Param("enabled") Integer enabled);
 
     int deleteById(@Param("id") long id);

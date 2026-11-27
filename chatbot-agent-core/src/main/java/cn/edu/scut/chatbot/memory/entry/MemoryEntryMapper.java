@@ -123,4 +123,29 @@ public interface MemoryEntryMapper {
                                        @Param("botId") String botId,
                                        @Param("groupId") String groupId,
                                        @Param("userId") String userId);
+
+    /**
+     * 管理端多维分页检索记忆条目（006 US6）
+     */
+    List<MemoryEntryDO> selectAdminPaged(@Param("platform") String platform,
+                                         @Param("botId") String botId,
+                                         @Param("groupId") String groupId,
+                                         @Param("memoryType") String memoryType,
+                                         @Param("userId") String userId,
+                                         @Param("status") String status,
+                                         @Param("keyword") String keyword,
+                                         @Param("from") java.time.LocalDateTime from,
+                                         @Param("to") java.time.LocalDateTime to,
+                                         @Param("offset") int offset,
+                                         @Param("limit") int limit);
+
+    long countAdminPaged(@Param("platform") String platform,
+                         @Param("botId") String botId,
+                         @Param("groupId") String groupId,
+                         @Param("memoryType") String memoryType,
+                         @Param("userId") String userId,
+                         @Param("status") String status,
+                         @Param("keyword") String keyword,
+                         @Param("from") java.time.LocalDateTime from,
+                         @Param("to") java.time.LocalDateTime to);
 }

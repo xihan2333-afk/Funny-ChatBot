@@ -46,4 +46,26 @@ public interface SecurityEventMapper {
      * 按 traceId 取事件（链路页还原现场：security_event 与 ES Span 互相引用）
      */
     List<SecurityEventDO> selectByTraceId(String traceId);
+
+    SecurityEventDO selectById(@org.apache.ibatis.annotations.Param("id") long id);
+
+    List<SecurityEventDO> selectPage(@org.apache.ibatis.annotations.Param("eventKind") String eventKind,
+                                     @org.apache.ibatis.annotations.Param("platform") String platform,
+                                     @org.apache.ibatis.annotations.Param("botId") String botId,
+                                     @org.apache.ibatis.annotations.Param("groupId") String groupId,
+                                     @org.apache.ibatis.annotations.Param("traceId") String traceId,
+                                     @org.apache.ibatis.annotations.Param("keyword") String keyword,
+                                     @org.apache.ibatis.annotations.Param("from") LocalDateTime from,
+                                     @org.apache.ibatis.annotations.Param("to") LocalDateTime to,
+                                     @org.apache.ibatis.annotations.Param("offset") int offset,
+                                     @org.apache.ibatis.annotations.Param("limit") int limit);
+
+    long countPage(@org.apache.ibatis.annotations.Param("eventKind") String eventKind,
+                   @org.apache.ibatis.annotations.Param("platform") String platform,
+                   @org.apache.ibatis.annotations.Param("botId") String botId,
+                   @org.apache.ibatis.annotations.Param("groupId") String groupId,
+                   @org.apache.ibatis.annotations.Param("traceId") String traceId,
+                   @org.apache.ibatis.annotations.Param("keyword") String keyword,
+                   @org.apache.ibatis.annotations.Param("from") LocalDateTime from,
+                   @org.apache.ibatis.annotations.Param("to") LocalDateTime to);
 }

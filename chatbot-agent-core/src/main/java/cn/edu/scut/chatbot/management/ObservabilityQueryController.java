@@ -65,8 +65,13 @@ public class ObservabilityQueryController {
     public CostReport cost(@RequestParam(defaultValue = "GROUP") CostQuery.CostDim dim,
                            @RequestParam(required = false) Long fromMillis,
                            @RequestParam(required = false) Long toMillis,
-                           @RequestParam(required = false) String groupId) {
-        return metricQueryService.cost(new CostQuery(dim, fromMillis, toMillis, groupId));
+                           @RequestParam(required = false) String groupId,
+                           @RequestParam(required = false) String platform,
+                           @RequestParam(required = false) String botId,
+                           @RequestParam(required = false) String slotCode,
+                           @RequestParam(required = false) String modelId) {
+        return metricQueryService.cost(new CostQuery(
+                dim, fromMillis, toMillis, groupId, platform, botId, slotCode, modelId));
     }
 
     @GetMapping("/metrics/latency")

@@ -40,7 +40,46 @@ public interface GatePolicyAdminService {
 
     void updateThresholds(Map<String, String> updates, String operator);
 
+    // ===== 注入特征规则（system_param security.delimit.featurePatterns） =====
+
+    default List<InjectionRuleView> listInjectionRules() {
+        return List.of();
+    }
+
+    default InjectionRuleView addInjectionRule(String pattern, String operator) {
+        throw new UnsupportedOperationException();
+    }
+
+    default InjectionRuleView updateInjectionRule(int index, String pattern, String operator) {
+        throw new UnsupportedOperationException();
+    }
+
+    default void deleteInjectionRule(int index, String operator) {
+        throw new UnsupportedOperationException();
+    }
+
+    // ===== 快筛/拒发记录查询与一键转候选词 =====
+
+    default List<FilterCandidateEventView> listFilterCandidates(int limit) {
+        return List.of();
+    }
+
+    default long promoteFilterWordFromEvent(long eventId, String overrideWord, String level, String operator) {
+        throw new UnsupportedOperationException();
+    }
+
+    default List<FilterCandidateEventView> listBreakerHistory(int limit) {
+        return List.of();
+    }
+
     // ===== 视图与请求契约 =====
+
+    record InjectionRuleView(int id, String pattern) {
+    }
+
+    record FilterCandidateEventView(long eventId, String platform, String botId, String groupId,
+                                    String detailJson, String traceId, LocalDateTime createdAt) {
+    }
 
     record BlacklistView(Long id, String scope, String platform, String botId,
                          String groupId, String userId, String reason, LocalDateTime createdAt) {

@@ -192,4 +192,45 @@
             LIMIT #{limit}
     </select>
 
+    <select id="countGroupTurnsSince" resultType="cn.edu.scut.chatbot.engine.turn.GroupTurnStats">
+        SELECT platform,
+               bot_id                                                           AS botId,
+               group_id                                                         AS groupId,
+               COUNT(*)                                                         AS totalCount,
+               SUM(CASE WHEN status IN ('SETTLED', 'SILENT') THEN 1 ELSE 0 END) AS successCount
+        FROM turn
+        WHERE accepted_at &gt;= #{from}
+        GROUP BY platform, bot_id, group_id
+    </select>
+
+    <select id="selectPaged" resultType="cn.edu.scut.chatbot.engine.turn.TurnDO">
+        SELECT id, platform, bot_id AS botId, group_id AS groupId, status,
+        trigger_ids AS triggerIds, outbox_ids AS outboxIds,
+        silent_reason AS silentReason, error_code AS errorCode,
+        accepted_at AS acceptedAt, finished_at AS finishedAt
+        FROM turn
+        <where>
+            <if test="platform != null and platform != ''">AND platform = #{platform}</if>
+            <if test="botId != null and botId != ''">AND bot_id = #{botId}</if>
+            <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
+            <if test="status != null and status != ''">AND status = #{status}</if>
+            <if test="from != null">AND accepted_at &gt;= #{from}</if>
+            <if test="to != null">AND accepted_at &lt; #{to}</if>
+        </where>
+        ORDER BY accepted_at DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countPaged" resultType="long">
+        SELECT COUNT(*) FROM turn
+        <where>
+            <if test="platform != null and platform != ''">AND platform = #{platform}</if>
+            <if test="botId != null and botId != ''">AND bot_id = #{botId}</if>
+            <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
+            <if test="status != null and status != ''">AND status = #{status}</if>
+            <if test="from != null">AND accepted_at &gt;= #{from}</if>
+            <if test="to != null">AND accepted_at &lt; #{to}</if>
+        </where>
+    </select>
+
 </mapper>

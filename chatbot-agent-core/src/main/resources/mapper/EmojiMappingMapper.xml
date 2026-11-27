@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.context.media.EmojiMappingMapper">
+
+    <select id="selectById" resultType="cn.edu.scut.chatbot.context.media.EmojiMappingDO">
+        SELECT id,
+               platform,
+               bot_id     AS botId,
+               group_id   AS groupId,
+               fingerprint,
+               description,
+               source,
+               updated_at AS updatedAt,
+               created_at AS createdAt
+        FROM emoji_mapping
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByGroupFingerprint" resultType="cn.edu.scut.chatbot.context.media.EmojiMappingDO">
+        SELECT id,
+               platform,
+               bot_id     AS botId,
+               group_id   AS groupId,
+               fingerprint,
+               description,
+               source,
+               updated_at AS updatedAt,
+               created_at AS createdAt
+        FROM emoji_mapping
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+          AND fingerprint = #{fingerprint}
+    </select>
+
+    <insert id="upsert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO emoji_mapping (platform, bot_id, group_id, fingerprint, description, source)
+        VALUES (#{platform}, #{botId}, #{groupId}, #{fingerprint}, #{description},
+                COALESCE(#{source}, 'vision')) ON DUPLICATE KEY
+        UPDATE
+            description =
+        VALUES (description), source =
+        VALUES (source)
+    </insert>
+
+    <update id="updateDescription">
+        UPDATE emoji_mapping
+        SET description = #{description},
+            source      = #{source}
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectPaged" resultType="cn.edu.scut.chatbot.context.media.EmojiMappingDO">
+        SELECT id, platform, bot_id AS botId, group_id AS groupId, fingerprint,
+        description, source, updated_at AS updatedAt, created_at AS createdAt
+        FROM emoji_mapping
+        <where>
+            <if test="platform != null and platform != ''">AND platform = #{platform}</if>
+            <if test="botId != null and botId != ''">AND bot_id = #{botId}</if>
+            <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
+            <if test="keyword != null and keyword != ''">
+                AND (fingerprint LIKE CONCAT('%', #{keyword}, '%') OR description LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+        ORDER BY updated_at DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countPaged" resultType="long">
+        SELECT COUNT(*) FROM emoji_mapping
+        <where>
+            <if test="platform != null and platform != ''">AND platform = #{platform}</if>
+            <if test="botId != null and botId != ''">AND bot_id = #{botId}</if>
+            <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
+            <if test="keyword != null and keyword != ''">
+                AND (fingerprint LIKE CONCAT('%', #{keyword}, '%') OR description LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+        </where>
+    </select>
+
+</mapper>

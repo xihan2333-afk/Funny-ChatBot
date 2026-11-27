@@ -181,4 +181,34 @@
         ORDER BY id
     </select>
 
+    <sql id="adminWhere">
+        <where>
+            <if test="platform != null and platform != ''">AND platform = #{platform}</if>
+            <if test="botId != null and botId != ''">AND bot_id = #{botId}</if>
+            <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
+            <if test="memoryType != null and memoryType != ''">AND memory_type = #{memoryType}</if>
+            <if test="userId != null and userId != ''">AND user_id = #{userId}</if>
+            <if test="status != null and status != ''">AND status = #{status}</if>
+            <if test="keyword != null and keyword != ''">
+                AND (content LIKE CONCAT('%', #{keyword}, '%') OR keywords LIKE CONCAT('%', #{keyword}, '%'))
+            </if>
+            <if test="from != null">AND occurred_at &gt;= #{from}</if>
+            <if test="to != null">AND occurred_at &lt;= #{to}</if>
+        </where>
+    </sql>
+
+    <select id="selectAdminPaged" resultType="cn.edu.scut.chatbot.memory.entry.MemoryEntryDO">
+        SELECT *
+        FROM memory_entry
+        <include refid="adminWhere"/>
+        ORDER BY occurred_at DESC, id DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+
+    <select id="countAdminPaged" resultType="long">
+        SELECT COUNT(*)
+        FROM memory_entry
+        <include refid="adminWhere"/>
+    </select>
+
 </mapper>

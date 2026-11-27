@@ -16,6 +16,7 @@
                extract_path       AS extractPath,
                max_response_bytes AS maxResponseBytes,
                timeout_millis     AS timeoutMillis,
+               speed,
                enabled,
                status,
                version_no         AS versionNo,
@@ -36,6 +37,7 @@
                extract_path       AS extractPath,
                max_response_bytes AS maxResponseBytes,
                timeout_millis     AS timeoutMillis,
+               speed,
                enabled,
                status,
                version_no         AS versionNo,
@@ -47,11 +49,31 @@
     <insert id="insertConfig">
         INSERT INTO http_tool_config
         (tool_name, description, parameters, method, url_template, body_template, headers,
-         credential_id, extract_path, max_response_bytes, timeout_millis, enabled)
+         credential_id, extract_path, max_response_bytes, timeout_millis, speed, enabled, status, version_no)
         VALUES (#{toolName}, #{description}, #{parameters}, #{method}, #{urlTemplate},
                 #{bodyTemplate}, #{headers}, #{credentialId}, #{extractPath},
-                #{maxResponseBytes}, #{timeoutMillis}, #{enabled})
+                #{maxResponseBytes}, #{timeoutMillis}, COALESCE(#{speed}, 'FAST'), #{enabled},
+                COALESCE(#{status}, 'published'), COALESCE(#{versionNo}, 1))
     </insert>
+
+    <update id="updateConfig">
+        UPDATE http_tool_config
+        SET description        = #{description},
+            parameters         = #{parameters},
+            method             = #{method},
+            url_template       = #{urlTemplate},
+            body_template      = #{bodyTemplate},
+            headers            = #{headers},
+            credential_id      = #{credentialId},
+            extract_path       = #{extractPath},
+            max_response_bytes = #{maxResponseBytes},
+            timeout_millis     = #{timeoutMillis},
+            speed              = COALESCE(#{speed}, 'FAST'),
+            enabled            = #{enabled},
+            status             = #{status},
+            version_no         = #{versionNo}
+        WHERE tool_name = #{toolName}
+    </update>
 
     <delete id="deleteByName">
         DELETE

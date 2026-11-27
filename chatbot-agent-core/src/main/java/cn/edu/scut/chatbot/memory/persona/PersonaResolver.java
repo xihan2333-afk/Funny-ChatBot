@@ -1,10 +1,13 @@
 package cn.edu.scut.chatbot.memory.persona;
 
 import cn.edu.scut.chatbot.bootstrap.JsonMappers;
+import cn.edu.scut.chatbot.engine.intake.GroupConfigDO;
+import cn.edu.scut.chatbot.engine.intake.GroupConfigMapper;
 import cn.edu.scut.chatbot.engine.session.AgentSessionDO;
 import cn.edu.scut.chatbot.engine.session.AgentSessionMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -23,27 +26,53 @@ public class PersonaResolver {
 
     private final PersonaMapper personaMapper;
     private final AgentSessionMapper sessionMapper;
+    private final GroupConfigMapper groupConfigMapper;
 
     public PersonaResolver(PersonaMapper personaMapper, AgentSessionMapper sessionMapper) {
+        this(personaMapper, sessionMapper, null);
+    }
+
+    @Autowired
+    public PersonaResolver(PersonaMapper personaMapper,
+                           AgentSessionMapper sessionMapper,
+                           GroupConfigMapper groupConfigMapper) {
         this.personaMapper = personaMapper;
         this.sessionMapper = sessionMapper;
+        this.groupConfigMapper = groupConfigMapper;
     }
 
     /**
-     * 解析当前人格：会话绑定优先，回落默认人格（种子 V4 预置）
+     * 解析当前人格：会话绑定优先，未建会话时读取 group_config.persona_id 兜底，最后回落默认人格（种子 V4 预置）
      */
     public PersonaDO resolve(String platform, String botId, String groupId) {
         if (groupId != null) {
             AgentSessionDO session = sessionMapper.selectByGroup(platform, botId, groupId);
             if (session != null && session.getPersonaId() != null) {
-                for (PersonaDO persona : personaMapper.selectAllPersonas()) {
-                    if (session.getPersonaId().equals(persona.getId())) {
-                        return persona;
+                PersonaDO found = findPersonaById(session.getPersonaId());
+                if (found != null) {
+                    return found;
+                }
+            }
+            if (groupConfigMapper != null) {
+                GroupConfigDO cfg = groupConfigMapper.selectByGroup(platform, botId, groupId);
+                if (cfg != null && cfg.getPersonaId() != null) {
+                    PersonaDO found = findPersonaById(cfg.getPersonaId());
+                    if (found != null) {
+                        return found;
                     }
                 }
             }
         }
         return personaMapper.selectDefaultPersona();
+    }
+
+    private PersonaDO findPersonaById(long personaId) {
+        for (PersonaDO persona : personaMapper.selectAllPersonas()) {
+            if (personaId == persona.getId()) {
+                return persona;
+            }
+        }
+        return null;
     }
 
     /**

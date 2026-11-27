@@ -31,4 +31,22 @@ public interface EvalTaskService {
     List<EvalBatchView> listBatches(String batchKind, int page, int size);
 
     List<EvalResultView> listResults(long batchId);
+
+    EvalBatchSummaryView getBatchSummary(long batchId);
+
+    List<EvalResultView> listBlindQueue(int page, int size);
+
+    record EvalBatchSummaryView(
+            long batchId,
+            String batchKind,
+            String status,
+            int totalCount,
+            int passedCount,
+            int failedCount,
+            double passRate,
+            double avgTotalScore,
+            String costStat,
+            String finishedAt
+    ) {
+    }
 }

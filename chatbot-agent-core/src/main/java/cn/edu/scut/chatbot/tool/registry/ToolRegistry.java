@@ -1,19 +1,17 @@
 package cn.edu.scut.chatbot.tool.registry;
 
-import cn.edu.scut.chatbot.bootstrap.JsonMappers;
 import cn.edu.scut.chatbot.engine.intake.HttpToolConfigDO;
 import cn.edu.scut.chatbot.engine.intake.HttpToolConfigMapper;
 import cn.edu.scut.chatbot.engine.intake.ToolConfigDO;
 import cn.edu.scut.chatbot.engine.intake.ToolConfigMapper;
+import cn.edu.scut.chatbot.infrastructure.eventbus.ConfigRefreshedEvent;
 import cn.edu.scut.chatbot.loop.AgentTool;
-import cn.edu.scut.chatbot.loop.ToolDescriptor;
 import cn.edu.scut.chatbot.tool.generic.HttpGenericTool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -83,7 +81,8 @@ public class ToolRegistry {
                 fresh.put(tool.descriptor().name(), tool);
             }
             for (HttpToolConfigDO config : httpToolConfigMapper.selectAll()) {
-                if (config.getEnabled() != null && config.getEnabled() == 1) {
+                if (config.getEnabled() != null && config.getEnabled() == 1
+                        && !"draft".equalsIgnoreCase(config.getStatus())) {
                     AgentTool rendered = genericToolFactory.render(config);
                     fresh.put(rendered.descriptor().name(), rendered);
                 }
@@ -99,6 +98,14 @@ public class ToolRegistry {
 
     public void refresh(String reason) {
         refresh(new ConfigRefreshEvent(reason));
+    }
+
+    @EventListener(ConfigRefreshedEvent.class)
+    public void onConfigRefreshed(ConfigRefreshedEvent event) {
+        String kind = event != null ? event.entityKind() : "all";
+        if ("all".equals(kind) || "tool_config".equals(kind) || "http_tool_config".equals(kind)) {
+            refresh(event != null ? event.reason() : "配置刷新");
+        }
     }
 
     /**

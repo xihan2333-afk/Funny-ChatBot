@@ -20,4 +20,15 @@
                 COALESCE(#{enabled}, 1))
     </insert>
 
+    <insert id="upsert">
+        INSERT INTO model_slot (slot_code, provider_code, model_id, gen_params, enabled)
+        VALUES (#{slotCode}, #{providerCode}, #{modelId}, #{genParams}, COALESCE(#{enabled}, 1)) ON DUPLICATE KEY
+        UPDATE
+            provider_code =
+        VALUES (provider_code), model_id =
+        VALUES (model_id), gen_params =
+        VALUES (gen_params), enabled =
+        VALUES (enabled)
+    </insert>
+
 </mapper>

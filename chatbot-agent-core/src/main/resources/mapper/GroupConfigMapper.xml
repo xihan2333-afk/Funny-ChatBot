@@ -8,12 +8,15 @@
                platform,
                bot_id                         AS botId,
                group_id                       AS groupId,
+               persona_id           AS personaId,
                user_blacklist                 AS userBlacklist,
                allowed_member_task_categories AS allowedMemberTaskCategories,
                allowed_autonomous_categories  AS allowedAutonomousCategories,
                disabled_tools                 AS disabledTools,
-               disabled_skills AS disabledSkills,
+               tool_param_overrides AS toolParamOverrides,
+               disabled_skills      AS disabledSkills,
                group_rules                    AS groupRules,
+               proactive_params     AS proactiveParams,
                transcript_retain_policy       AS transcriptRetainPolicy,
                created_at                     AS createdAt,
                updated_at                     AS updatedAt
@@ -43,6 +46,31 @@
         UPDATE group_config
         SET allowed_member_task_categories = #{allowedMemberJson},
             allowed_autonomous_categories  = #{allowedAutonomousJson}
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+    </update>
+
+    <update id="updateFullConfig">
+        UPDATE group_config
+        SET persona_id                     = #{personaId},
+            user_blacklist                 = #{userBlacklist},
+            allowed_member_task_categories = #{allowedMemberTaskCategories},
+            allowed_autonomous_categories  = #{allowedAutonomousCategories},
+            disabled_tools                 = #{disabledTools},
+            tool_param_overrides           = #{toolParamOverrides},
+            disabled_skills                = #{disabledSkills},
+            group_rules                    = #{groupRules},
+            proactive_params               = #{proactiveParams},
+            transcript_retain_policy       = #{transcriptRetainPolicy}
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+    </update>
+
+    <update id="updateTranscriptRetainPolicy">
+        UPDATE group_config
+        SET transcript_retain_policy = #{policy}
         WHERE platform = #{platform}
           AND bot_id = #{botId}
           AND group_id = #{groupId}

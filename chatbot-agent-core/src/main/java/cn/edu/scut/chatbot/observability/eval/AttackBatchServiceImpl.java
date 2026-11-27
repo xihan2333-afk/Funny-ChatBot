@@ -253,6 +253,28 @@ public class AttackBatchServiceImpl implements AttackBatchService {
     }
 
     @Override
+    public void updateCase(long id, AttackCaseCreateRequest request, String operator) {
+        AttackCaseDO existing = attackCaseMapper.selectById(id);
+        if (existing == null) {
+            throw new IllegalArgumentException("对抗用例不存在：" + id);
+        }
+        AttackCaseDO row = new AttackCaseDO();
+        row.setId(id);
+        row.setChannel(request.channel() != null ? request.channel() : existing.getChannel());
+        row.setTitle(request.title() != null ? request.title() : existing.getTitle());
+        row.setPayload(request.payload() != null ? request.payload() : existing.getPayload());
+        row.setScenario(request.scenario() != null ? request.scenario() : existing.getScenario());
+        row.setExpectation(request.expectation() != null ? request.expectation() : existing.getExpectation());
+        row.setAssertion(request.assertion() != null ? request.assertion() : existing.getAssertion());
+        AttackAssertionEvaluator.validateStructure(row);
+        attackCaseMapper.updateCase(row);
+        securityEventRecorder.record(SecurityEventKind.ADMIN_OPERATE, SecurityDims.none(),
+                Map.of("action", "attackCaseUpdate", "id", id,
+                        "channel", row.getChannel(), "operator", operator != null ? operator : "admin"),
+                null);
+    }
+
+    @Override
     public void setEnabled(long id, boolean enabled, String operator) {
         attackCaseMapper.updateEnabled(id, enabled ? 1 : 0);
         securityEventRecorder.record(SecurityEventKind.ADMIN_OPERATE, SecurityDims.none(),

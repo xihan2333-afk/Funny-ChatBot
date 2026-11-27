@@ -47,4 +47,8 @@ public interface CredentialMapper {
      * 更新单行密文（主密钥轮换按行事务写回，T085）
      */
     int updateKeyCipher(@Param("id") long id, @Param("keyCipher") byte[] keyCipher);
+
+    int updateStatus(@Param("id") long id, @Param("status") String status);
+
+    int deleteById(@Param("id") long id);
 }

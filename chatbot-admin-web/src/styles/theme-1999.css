@@ -1,0 +1,824 @@
+/* ==========================================================================
+   Reverse: 1999 Inspired Theme — Retro Cinema + Art Deco + Occult Archive
+   Dark Film Edition | Pure CSS Override Layer for Vue 3 + Element Plus
+   ========================================================================== */
+
+:root {
+    /* --- Design Tokens: 1999 Dark Film Palette --- */
+    --r1999-bg-canvas: #12110F;
+    --r1999-bg-surface: #1B1916;
+    --r1999-bg-elevated: #23201C;
+    --r1999-bg-inset: #151310;
+
+    --r1999-primary: #C69C6D;
+    --r1999-primary-hover: #D8B184;
+    --r1999-primary-active: #A67E51;
+
+    --r1999-accent-rust: #B85337;
+    --r1999-accent-sage: #7A8B71;
+    --r1999-accent-ochre: #C48B45;
+
+    --r1999-text-primary: #E8E2D5;
+    --r1999-text-regular: #D2CBBF;
+    --r1999-text-secondary: #968E80;
+    --r1999-text-muted: #6B6459;
+
+    --r1999-border: rgba(198, 156, 109, 0.25);
+    --r1999-border-strong: rgba(198, 156, 109, 0.65);
+    --r1999-border-subtle: rgba(198, 156, 109, 0.12);
+
+    --r1999-font-serif: 'Cormorant Garamond', 'Noto Serif SC', 'Songti SC', Georgia, serif;
+    --r1999-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+
+    /* --- Element Plus Core Color System --- */
+    --el-color-white: #E8E2D5;
+    --el-color-black: #12110F;
+
+    --el-color-primary: #C69C6D;
+    --el-color-primary-light-3: #D4B28A;
+    --el-color-primary-light-5: #DFC6A6;
+    --el-color-primary-light-7: #EBDAC3;
+    --el-color-primary-light-8: #F2E6D6;
+    --el-color-primary-light-9: rgba(198, 156, 109, 0.12);
+    --el-color-primary-dark-2: #A67E51;
+
+    --el-color-success: #7A8B71;
+    --el-color-success-light-3: #93A28B;
+    --el-color-success-light-5: #ABB7A5;
+    --el-color-success-light-7: #C5CEC0;
+    --el-color-success-light-8: #D8DFD4;
+    --el-color-success-light-9: rgba(122, 139, 113, 0.14);
+    --el-color-success-dark-2: #5F6E57;
+
+    --el-color-warning: #C48B45;
+    --el-color-warning-light-3: #D1A268;
+    --el-color-warning-light-5: #DDB88A;
+    --el-color-warning-light-7: #E9CFAD;
+    --el-color-warning-light-8: #F1DFC7;
+    --el-color-warning-light-9: rgba(196, 139, 69, 0.14);
+    --el-color-warning-dark-2: #9E6E33;
+
+    --el-color-danger: #B85337;
+    --el-color-danger-light-3: #C9745C;
+    --el-color-danger-light-5: #D79481;
+    --el-color-danger-light-7: #E5B5A7;
+    --el-color-danger-light-8: #EFCBC1;
+    --el-color-danger-light-9: rgba(184, 83, 55, 0.15);
+    --el-color-danger-dark-2: #943F28;
+
+    --el-color-error: #B85337;
+    --el-color-error-light-3: #C9745C;
+    --el-color-error-light-5: #D79481;
+    --el-color-error-light-7: #E5B5A7;
+    --el-color-error-light-8: #EFCBC1;
+    --el-color-error-light-9: rgba(184, 83, 55, 0.15);
+    --el-color-error-dark-2: #943F28;
+
+    --el-color-info: #968E80;
+    --el-color-info-light-3: #ABA497;
+    --el-color-info-light-5: #BEB9AE;
+    --el-color-info-light-7: #D2CEC6;
+    --el-color-info-light-8: #DFDCD6;
+    --el-color-info-light-9: rgba(150, 142, 128, 0.14);
+    --el-color-info-dark-2: #756E62;
+
+    /* --- Element Plus Surfaces & Text --- */
+    --el-bg-color: #1B1916;
+    --el-bg-color-page: #12110F;
+    --el-bg-color-overlay: #23201C;
+
+    --el-text-color-primary: #E8E2D5;
+    --el-text-color-regular: #D2CBBF;
+    --el-text-color-secondary: #968E80;
+    --el-text-color-placeholder: #6B6459;
+    --el-text-color-disabled: #554F46;
+
+    /* --- Element Plus Borders & Fills --- */
+    --el-border-color: rgba(198, 156, 109, 0.25);
+    --el-border-color-light: rgba(198, 156, 109, 0.18);
+    --el-border-color-lighter: rgba(198, 156, 109, 0.12);
+    --el-border-color-extra-light: rgba(198, 156, 109, 0.08);
+    --el-border-color-dark: rgba(198, 156, 109, 0.45);
+    --el-border-color-darker: rgba(198, 156, 109, 0.65);
+
+    --el-fill-color: #23201C;
+    --el-fill-color-light: #1F1C18;
+    --el-fill-color-lighter: #181613;
+    --el-fill-color-extra-light: #151310;
+    --el-fill-color-dark: #2B2722;
+    --el-fill-color-darker: #332E28;
+    --el-fill-color-blank: transparent;
+
+    --el-mask-color: rgba(12, 11, 9, 0.78);
+    --el-mask-color-extra-light: rgba(12, 11, 9, 0.45);
+
+    /* --- Geometry: Zero Radius Art Deco --- */
+    --el-border-radius-base: 0px;
+    --el-border-radius-small: 0px;
+    --el-border-radius-round: 0px;
+    --el-border-radius-circle: 0px;
+
+    /* --- Shadows: Warm Charcoal Depth (No Neon) --- */
+    --el-box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+    --el-box-shadow-light: 0 4px 16px rgba(0, 0, 0, 0.35);
+    --el-box-shadow-lighter: 0 2px 8px rgba(0, 0, 0, 0.25);
+    --el-box-shadow-dark: 0 12px 32px rgba(0, 0, 0, 0.6);
+
+    --el-font-family: var(--r1999-font-sans);
+    --el-disabled-bg-color: #171512;
+    --el-disabled-text-color: #5E584E;
+    --el-disabled-border-color: rgba(198, 156, 109, 0.12);
+}
+
+/* ==========================================================================
+   Global Base, Film Grain Overlay & Typography
+   ========================================================================== */
+
+html,
+body,
+#app {
+    background-color: var(--r1999-bg-canvas);
+    color: var(--r1999-text-primary);
+    font-family: var(--r1999-font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+/* Subtle 35mm film grain overlay */
+body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    pointer-events: none;
+    opacity: 0.03;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+}
+
+/* Serif Headings & Archival Titles */
+h1,
+h2,
+h3,
+h4,
+.el-card__header,
+.el-dialog__title,
+.el-drawer__title,
+.el-message-box__title {
+    font-family: var(--r1999-font-serif);
+    letter-spacing: 0.06em;
+    color: var(--r1999-text-primary);
+}
+
+/* Tabular Figures for Data & Metrics */
+.el-table,
+.el-statistic__number,
+.el-pagination,
+.el-descriptions {
+    font-variant-numeric: tabular-nums;
+}
+
+/* Custom Dark Brass Scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--r1999-bg-canvas);
+}
+
+::-webkit-scrollbar-thumb {
+    background: rgba(198, 156, 109, 0.25);
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: rgba(198, 156, 109, 0.5);
+}
+
+/* ==========================================================================
+   Layout Shell & Auth Page Overrides (Counters Scoped CSS cleanly)
+   ========================================================================== */
+
+.admin-layout {
+    background-color: var(--r1999-bg-canvas);
+}
+
+.admin-layout .admin-aside {
+    background-color: #161411 !important;
+    color: var(--r1999-text-primary) !important;
+    border-right: 1px solid var(--r1999-border);
+}
+
+.admin-layout .brand {
+    background-color: #14120F;
+    border-bottom: 1px solid var(--r1999-border) !important;
+    color: var(--r1999-primary) !important;
+    font-family: var(--r1999-font-serif);
+    letter-spacing: 0.08em;
+    font-size: 16px !important;
+}
+
+.admin-layout .admin-header {
+    background: var(--r1999-bg-surface) !important;
+    border-bottom: 1px solid var(--r1999-border) !important;
+    color: var(--r1999-text-primary);
+}
+
+.admin-layout .page-title {
+    font-family: var(--r1999-font-serif);
+    letter-spacing: 0.06em;
+    color: var(--r1999-text-primary) !important;
+    font-size: 18px !important;
+}
+
+.admin-layout .operator-name {
+    color: var(--r1999-text-secondary) !important;
+    font-size: 13px !important;
+    letter-spacing: 0.04em;
+}
+
+.admin-layout .admin-main {
+    background-color: var(--r1999-bg-canvas) !important;
+}
+
+/* Login / Auth Page */
+.auth-page {
+    background: radial-gradient(circle at 50% 35%, #23201C 0%, #12110F 72%) !important;
+}
+
+.auth-page .card-title {
+    font-family: var(--r1999-font-serif);
+    letter-spacing: 0.08em;
+    color: var(--r1999-primary);
+    font-size: 20px !important;
+}
+
+/* ==========================================================================
+   Element Plus: Button (.el-button)
+   ========================================================================== */
+
+.el-button {
+    --el-button-bg-color: transparent;
+    --el-button-text-color: var(--r1999-text-primary);
+    --el-button-border-color: var(--r1999-border);
+    --el-button-hover-bg-color: rgba(198, 156, 109, 0.1);
+    --el-button-hover-text-color: var(--r1999-primary-hover);
+    --el-button-hover-border-color: var(--r1999-border-strong);
+    --el-button-active-bg-color: rgba(198, 156, 109, 0.18);
+    --el-button-active-text-color: var(--r1999-primary);
+    --el-button-active-border-color: var(--r1999-primary);
+    border-radius: 0px;
+    letter-spacing: 0.04em;
+    transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.el-button--primary {
+    --el-button-bg-color: var(--r1999-primary);
+    --el-button-text-color: #12110F;
+    --el-button-border-color: var(--r1999-primary);
+    --el-button-hover-bg-color: var(--r1999-primary-hover);
+    --el-button-hover-text-color: #12110F;
+    --el-button-hover-border-color: var(--r1999-primary-hover);
+    --el-button-active-bg-color: var(--r1999-primary-active);
+    --el-button-active-text-color: #12110F;
+    --el-button-active-border-color: var(--r1999-primary-active);
+    font-weight: 600;
+}
+
+.el-button--primary.is-plain {
+    --el-button-bg-color: transparent;
+    --el-button-text-color: var(--r1999-primary);
+    --el-button-border-color: var(--r1999-border-strong);
+    --el-button-hover-bg-color: rgba(198, 156, 109, 0.14);
+    --el-button-hover-text-color: var(--r1999-primary-hover);
+    --el-button-hover-border-color: var(--r1999-primary-hover);
+}
+
+.el-button--danger {
+    --el-button-bg-color: var(--r1999-accent-rust);
+    --el-button-text-color: #E8E2D5;
+    --el-button-border-color: var(--r1999-accent-rust);
+    --el-button-hover-bg-color: #C96245;
+    --el-button-hover-text-color: #E8E2D5;
+    --el-button-hover-border-color: #C96245;
+}
+
+.el-button--danger.is-plain {
+    --el-button-bg-color: transparent;
+    --el-button-text-color: #D77B61;
+    --el-button-border-color: rgba(184, 83, 55, 0.5);
+    --el-button-hover-bg-color: rgba(184, 83, 55, 0.15);
+    --el-button-hover-text-color: #E8E2D5;
+    --el-button-hover-border-color: var(--r1999-accent-rust);
+}
+
+.el-button.is-text,
+.el-button.is-link {
+    --el-button-bg-color: transparent;
+    --el-button-border-color: transparent;
+}
+
+.el-button.is-text:hover {
+    background-color: rgba(198, 156, 109, 0.08);
+    color: var(--r1999-primary-hover);
+}
+
+/* ==========================================================================
+   Element Plus: Card & Dialog (.el-card, .el-dialog, .el-message-box)
+   ========================================================================== */
+
+.el-card {
+    --el-card-bg-color: var(--r1999-bg-surface);
+    --el-card-border-color: var(--r1999-border);
+    --el-card-border-radius: 0px;
+    position: relative;
+    border: 1px solid var(--r1999-border);
+    background-color: var(--r1999-bg-surface);
+    color: var(--r1999-text-primary);
+    box-shadow: inset 0 0 0 3px var(--r1999-bg-surface),
+    inset 0 0 0 4px var(--r1999-border-subtle),
+    0 6px 20px rgba(0, 0, 0, 0.35);
+}
+
+.el-card.is-always-shadow,
+.el-card.is-hover-shadow:hover {
+    box-shadow: inset 0 0 0 3px var(--r1999-bg-surface),
+    inset 0 0 0 4px rgba(198, 156, 109, 0.2),
+    0 10px 28px rgba(0, 0, 0, 0.45);
+}
+
+/* Art Deco Corner Brackets on Cards */
+.el-card::before,
+.el-card::after {
+    content: '';
+    position: absolute;
+    width: 9px;
+    height: 9px;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.el-card::before {
+    top: -1px;
+    left: -1px;
+    border-top: 1px solid var(--r1999-primary);
+    border-left: 1px solid var(--r1999-primary);
+}
+
+.el-card::after {
+    bottom: -1px;
+    right: -1px;
+    border-bottom: 1px solid var(--r1999-primary);
+    border-right: 1px solid var(--r1999-primary);
+}
+
+.el-card__header {
+    border-bottom: 1px solid var(--r1999-border);
+    padding: 14px 20px;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+/* Dialogs & Overlays */
+.el-overlay {
+    background-color: var(--el-mask-color);
+}
+
+.el-dialog {
+    --el-dialog-bg-color: var(--r1999-bg-elevated);
+    --el-dialog-border-radius: 0px;
+    position: relative;
+    background-color: var(--r1999-bg-elevated);
+    border: 1px solid var(--r1999-border-strong);
+    box-shadow: inset 0 0 0 4px var(--r1999-bg-elevated),
+    inset 0 0 0 5px var(--r1999-border-subtle),
+    0 18px 48px rgba(0, 0, 0, 0.65);
+}
+
+.el-dialog::before,
+.el-dialog::after {
+    content: '';
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.el-dialog::before {
+    top: -1px;
+    left: -1px;
+    border-top: 2px solid var(--r1999-primary);
+    border-left: 2px solid var(--r1999-primary);
+}
+
+.el-dialog::after {
+    bottom: -1px;
+    right: -1px;
+    border-bottom: 2px solid var(--r1999-primary);
+    border-right: 2px solid var(--r1999-primary);
+}
+
+.el-dialog__header {
+    border-bottom: 1px solid var(--r1999-border);
+    padding-bottom: 14px;
+    margin-right: 0;
+}
+
+.el-dialog__footer {
+    border-top: 1px solid var(--r1999-border-subtle);
+    padding-top: 14px;
+}
+
+.el-message-box {
+    background-color: var(--r1999-bg-elevated);
+    border: 1px solid var(--r1999-border-strong);
+    border-radius: 0px;
+    box-shadow: inset 0 0 0 3px var(--r1999-bg-elevated),
+    inset 0 0 0 4px var(--r1999-border-subtle),
+    0 16px 40px rgba(0, 0, 0, 0.6);
+}
+
+.el-drawer {
+    --el-drawer-bg-color: var(--r1999-bg-elevated);
+    border-left: 1px solid var(--r1999-border-strong);
+}
+
+/* ==========================================================================
+   Element Plus: Table (.el-table)
+   ========================================================================== */
+
+.el-table {
+    --el-table-bg-color: transparent;
+    --el-table-tr-bg-color: transparent;
+    --el-table-header-bg-color: var(--r1999-bg-inset);
+    --el-table-header-text-color: var(--r1999-primary);
+    --el-table-text-color: var(--r1999-text-primary);
+    --el-table-row-hover-bg-color: rgba(198, 156, 109, 0.08);
+    --el-table-current-row-bg-color: rgba(198, 156, 109, 0.14);
+    --el-table-border-color: var(--r1999-border-subtle);
+    --el-table-border: 1px dashed rgba(198, 156, 109, 0.16);
+    background-color: transparent;
+}
+
+.el-table th.el-table__cell {
+    background-color: var(--r1999-bg-inset) !important;
+    color: var(--r1999-primary);
+    font-family: var(--r1999-font-serif);
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--r1999-border) !important;
+}
+
+.el-table td.el-table__cell {
+    border-bottom: 1px dashed rgba(198, 156, 109, 0.14);
+}
+
+.el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
+    background-color: rgba(255, 255, 255, 0.015);
+}
+
+.el-table--border .el-table__inner-wrapper::after,
+.el-table--border::after,
+.el-table--border::before,
+.el-table__inner-wrapper::before {
+    background-color: var(--r1999-border);
+}
+
+.el-table__empty-text {
+    color: var(--r1999-text-secondary);
+    font-family: var(--r1999-font-serif);
+    letter-spacing: 0.06em;
+}
+
+/* ==========================================================================
+   Element Plus: Input, Select, Form Controls
+   ========================================================================== */
+
+.el-input__wrapper,
+.el-select__wrapper,
+.el-textarea__inner {
+    background-color: var(--r1999-bg-inset) !important;
+    border-radius: 0px !important;
+    box-shadow: 0 0 0 1px var(--r1999-border) inset !important;
+    color: var(--r1999-text-primary);
+    transition: box-shadow 0.2s ease, background-color 0.2s ease;
+}
+
+.el-input__wrapper:hover,
+.el-select__wrapper:hover,
+.el-textarea__inner:hover {
+    box-shadow: 0 0 0 1px rgba(198, 156, 109, 0.45) inset !important;
+}
+
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused,
+.el-textarea__inner:focus {
+    background-color: #181511 !important;
+    box-shadow: 0 0 0 1px var(--r1999-primary) inset !important;
+}
+
+.el-input__inner,
+.el-select__selected-item,
+.el-textarea__inner {
+    color: var(--r1999-text-primary) !important;
+}
+
+.el-input__inner::placeholder,
+.el-select__placeholder,
+.el-textarea__inner::placeholder {
+    color: var(--r1999-text-muted) !important;
+}
+
+.el-form-item__label {
+    color: var(--r1999-text-secondary);
+    letter-spacing: 0.03em;
+}
+
+/* ==========================================================================
+   Element Plus: Menu, Tabs, Tag (Navigation & Archival Stamps)
+   ========================================================================== */
+
+.admin-aside .el-menu,
+.el-menu {
+    --el-menu-bg-color: #161411 !important;
+    --el-menu-text-color: #968E80 !important;
+    --el-menu-hover-bg-color: rgba(198, 156, 109, 0.08) !important;
+    --el-menu-active-color: #C69C6D !important;
+    background-color: #161411 !important;
+    border-right: none;
+}
+
+.el-menu-item,
+.el-sub-menu__title {
+    color: var(--r1999-text-secondary) !important;
+    transition: background-color 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+}
+
+.el-menu-item:hover,
+.el-sub-menu__title:hover {
+    background-color: rgba(198, 156, 109, 0.08) !important;
+    color: var(--r1999-text-primary) !important;
+}
+
+.el-menu--vertical .el-menu-item.is-active {
+    background-color: rgba(198, 156, 109, 0.12) !important;
+    color: var(--r1999-primary) !important;
+    border-left: 2px solid var(--r1999-primary);
+}
+
+.el-menu--horizontal > .el-menu-item.is-active {
+    border-bottom: 2px solid var(--r1999-primary);
+    color: var(--r1999-primary) !important;
+}
+
+/* Tabs */
+.el-tabs__item {
+    color: var(--r1999-text-secondary);
+    letter-spacing: 0.04em;
+}
+
+.el-tabs__item.is-active,
+.el-tabs__item:hover {
+    color: var(--r1999-primary);
+}
+
+.el-tabs__active-bar {
+    background-color: var(--r1999-primary);
+    height: 2px;
+}
+
+.el-tabs__nav-wrap::after {
+    background-color: var(--r1999-border-subtle);
+}
+
+.el-tabs--border-card {
+    background-color: var(--r1999-bg-surface);
+    border: 1px solid var(--r1999-border);
+}
+
+.el-tabs--border-card > .el-tabs__header {
+    background-color: var(--r1999-bg-inset);
+    border-bottom: 1px solid var(--r1999-border);
+}
+
+.el-tabs--border-card > .el-tabs__header .el-tabs__item.is-active {
+    background-color: var(--r1999-bg-surface);
+    border-right-color: var(--r1999-border);
+    border-left-color: var(--r1999-border);
+    color: var(--r1999-primary);
+}
+
+/* Tag: Archival Stamp Style */
+.el-tag {
+    --el-tag-border-radius: 0px;
+    border-radius: 0px;
+    font-size: 12px;
+    letter-spacing: 0.04em;
+    background-color: rgba(198, 156, 109, 0.1);
+    border-color: rgba(198, 156, 109, 0.35);
+    color: var(--r1999-primary);
+}
+
+.el-tag--success {
+    background-color: rgba(122, 139, 113, 0.14);
+    border-color: rgba(122, 139, 113, 0.45);
+    color: #A6B89D;
+}
+
+.el-tag--warning {
+    background-color: rgba(196, 139, 69, 0.14);
+    border-color: rgba(196, 139, 69, 0.45);
+    color: #DDA969;
+}
+
+.el-tag--danger {
+    background-color: rgba(184, 83, 55, 0.16);
+    border-color: rgba(184, 83, 55, 0.5);
+    color: #DE856C;
+}
+
+.el-tag--info {
+    background-color: rgba(150, 142, 128, 0.12);
+    border-color: rgba(150, 142, 128, 0.35);
+    color: var(--r1999-text-secondary);
+}
+
+/* ==========================================================================
+   Element Plus: Popper Mounted Components (Select, Dropdown, Tooltip, Picker)
+   ========================================================================== */
+
+.el-popper,
+.el-popper.is-light,
+.el-popper.is-dark {
+    background-color: var(--r1999-bg-elevated) !important;
+    border: 1px solid var(--r1999-border-strong) !important;
+    border-radius: 0px !important;
+    color: var(--r1999-text-primary) !important;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, 0.55) !important;
+}
+
+.el-popper .el-popper__arrow::before {
+    background-color: var(--r1999-bg-elevated) !important;
+    border-color: var(--r1999-border-strong) !important;
+}
+
+.el-select-dropdown__item {
+    color: var(--r1999-text-regular);
+}
+
+.el-select-dropdown__item.is-hovering,
+.el-select-dropdown__item:hover {
+    background-color: rgba(198, 156, 109, 0.12);
+    color: var(--r1999-primary-hover);
+}
+
+.el-select-dropdown__item.is-selected {
+    color: var(--r1999-primary);
+    font-weight: 600;
+    background-color: rgba(198, 156, 109, 0.08);
+}
+
+.el-dropdown-menu {
+    background-color: var(--r1999-bg-elevated);
+}
+
+.el-dropdown-menu__item {
+    color: var(--r1999-text-regular);
+}
+
+.el-dropdown-menu__item:hover {
+    background-color: rgba(198, 156, 109, 0.12);
+    color: var(--r1999-primary-hover);
+}
+
+/* DatePicker / TimePicker */
+.el-picker-panel {
+    background-color: var(--r1999-bg-elevated);
+    color: var(--r1999-text-primary);
+    border: 1px solid var(--r1999-border);
+}
+
+.el-picker-panel__sidebar,
+.el-picker-panel__footer {
+    background-color: var(--r1999-bg-inset);
+    border-color: var(--r1999-border-subtle);
+}
+
+.el-date-table th {
+    color: var(--r1999-primary);
+    border-bottom-color: var(--r1999-border-subtle);
+}
+
+.el-date-table td.in-range .el-date-table-cell {
+    background-color: rgba(198, 156, 109, 0.14);
+}
+
+.el-date-table td.current:not(.disabled) .el-date-table-cell__text,
+.el-date-table td.start-date .el-date-table-cell__text,
+.el-date-table td.end-date .el-date-table-cell__text {
+    background-color: var(--r1999-primary);
+    color: #12110F;
+    border-radius: 0px;
+}
+
+/* Message & Notification */
+.el-message,
+.el-notification {
+    background-color: var(--r1999-bg-elevated) !important;
+    border: 1px solid var(--r1999-border-strong) !important;
+    border-radius: 0px !important;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55) !important;
+}
+
+.el-message__content,
+.el-notification__title,
+.el-notification__content {
+    color: var(--r1999-text-primary) !important;
+}
+
+/* ==========================================================================
+   Element Plus: Pagination, Descriptions, Switches, Alerts & Misc
+   ========================================================================== */
+
+.el-pagination {
+    --el-pagination-bg-color: var(--r1999-bg-inset);
+    --el-pagination-button-bg-color: var(--r1999-bg-inset);
+    --el-pagination-text-color: var(--r1999-text-secondary);
+    --el-pagination-hover-color: var(--r1999-primary);
+}
+
+.el-pagination.is-background .el-pager li:not(.is-disabled).is-active {
+    background-color: var(--r1999-primary);
+    color: #12110F;
+}
+
+.el-descriptions__body {
+    background-color: transparent;
+}
+
+.el-descriptions__label.el-descriptions__cell.is-bordered-label {
+    background-color: var(--r1999-bg-inset);
+    color: var(--r1999-primary);
+    font-weight: 500;
+}
+
+.el-descriptions__content.el-descriptions__cell.is-bordered-content {
+    background-color: var(--r1999-bg-surface);
+    color: var(--r1999-text-primary);
+}
+
+.el-switch__core {
+    border-radius: 0px !important;
+    border: 1px solid var(--r1999-border);
+    background-color: var(--r1999-bg-inset);
+}
+
+.el-switch.is-checked .el-switch__core {
+    background-color: var(--r1999-primary);
+    border-color: var(--r1999-primary);
+}
+
+.el-switch__core .el-switch__action {
+    border-radius: 0px !important;
+    background-color: var(--r1999-text-primary);
+}
+
+.el-switch.is-checked .el-switch__core .el-switch__action {
+    background-color: #12110F;
+}
+
+.el-checkbox__inner,
+.el-radio__inner {
+    border-radius: 0px !important;
+    background-color: var(--r1999-bg-inset);
+    border-color: var(--r1999-border-strong);
+}
+
+.el-alert {
+    border-radius: 0px;
+    border: 1px solid var(--r1999-border);
+    background-color: var(--r1999-bg-elevated);
+}
+
+.el-divider {
+    border-top-color: var(--r1999-border-subtle);
+}
+
+.el-divider__text {
+    background-color: var(--r1999-bg-surface);
+    color: var(--r1999-primary);
+    font-family: var(--r1999-font-serif);
+    letter-spacing: 0.06em;
+}
+
+.el-badge__content {
+    border-radius: 0px;
+    border-color: var(--r1999-bg-surface);
+    background-color: var(--r1999-accent-rust);
+}
+
+.el-loading-mask {
+    background-color: rgba(18, 17, 15, 0.72);
+}

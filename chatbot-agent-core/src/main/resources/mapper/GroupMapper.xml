@@ -28,6 +28,23 @@
           AND group_id = #{groupId}
     </select>
 
+    <select id="selectAll" resultType="cn.edu.scut.chatbot.engine.intake.GroupDO">
+        SELECT id,
+               platform,
+               bot_id                    AS botId,
+               group_id                  AS groupId,
+               group_name                AS groupName,
+               lifecycle,
+               in_service                AS inService,
+               paused_at                 AS pausedAt,
+               paused_accumulated_millis AS pausedAccumulatedMillis,
+               discovered_at             AS discoveredAt,
+               created_at                AS createdAt,
+               updated_at                AS updatedAt
+        FROM `group`
+        ORDER BY updated_at DESC, id DESC
+    </select>
+
     <select id="selectAllInService" resultType="cn.edu.scut.chatbot.engine.intake.GroupDO">
         SELECT id,
                platform,

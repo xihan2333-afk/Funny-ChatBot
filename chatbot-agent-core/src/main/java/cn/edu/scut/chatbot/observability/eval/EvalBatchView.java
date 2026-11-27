@@ -15,7 +15,7 @@ public record EvalBatchView(long id,
                             LocalDateTime createdAt,
                             LocalDateTime finishedAt) {
 
-    static EvalBatchView from(EvalBatchDO batch) {
+    public static EvalBatchView from(EvalBatchDO batch) {
         return new EvalBatchView(batch.getId(), batch.getBatchKind(), batch.getScope(),
                 batch.getStatus(), batch.getReport(), batch.getCostStat(),
                 batch.getCreatedAt(), batch.getFinishedAt());

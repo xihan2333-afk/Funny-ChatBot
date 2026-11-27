@@ -16,7 +16,17 @@ public class PrivacyErasureController {
         this.privacyErasureService = privacyErasureService;
     }
 
+    @GetMapping("/preview")
+    public PrivacyErasureService.ErasurePreview preview(
+            @RequestParam String platform,
+            @RequestParam String botId,
+            @RequestParam String groupId,
+            @RequestParam String userId) {
+        return privacyErasureService.preview(platform, botId, groupId, userId);
+    }
+
     @PostMapping("/erase")
+    @SkipAutoAudit
     public PrivacyErasureService.ErasureReport erase(
             @RequestBody ErasureRequest request,
             @RequestAttribute(name = ManagementAuthFilter.ATTR_OPERATOR, required = false) String operator) {

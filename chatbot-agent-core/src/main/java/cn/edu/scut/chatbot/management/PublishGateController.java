@@ -21,6 +21,7 @@ public class PublishGateController {
      * 发布确认前触发必过子集回测（异步——发布单显示 running）
      */
     @PostMapping("/trigger")
+    @AuditAction(target = "publish_gate", action = "trigger", summary = "触发发布门禁回测")
     public PublishGateService.GateStatus trigger(@RequestParam String intention) {
         return publishGateService.trigger(intention);
     }
@@ -34,6 +35,7 @@ public class PublishGateController {
      * 发布（红牌时 overrideReason 必填——动作与理由记 security_event 审计）
      */
     @PostMapping("/publish")
+    @SkipAutoAudit
     public void publish(@RequestParam String intention,
                         @RequestParam(required = false) String overrideReason) {
         publishGateService.publish(intention, overrideReason);

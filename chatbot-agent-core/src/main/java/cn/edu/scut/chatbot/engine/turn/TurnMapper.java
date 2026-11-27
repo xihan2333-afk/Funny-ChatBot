@@ -98,4 +98,25 @@ public interface TurnMapper {
     List<TurnDO> selectFailedBetween(@Param("from") LocalDateTime from,
                                      @Param("to") LocalDateTime to,
                                      @Param("limit") int limit);
+
+    /**
+     * 按群聚合指定时间之后的 Turn 总数与成功数（总览页 24h 健康卡片）
+     */
+    List<GroupTurnStats> countGroupTurnsSince(@Param("from") LocalDateTime from);
+
+    List<TurnDO> selectPaged(@Param("platform") String platform,
+                             @Param("botId") String botId,
+                             @Param("groupId") String groupId,
+                             @Param("status") String status,
+                             @Param("from") LocalDateTime from,
+                             @Param("to") LocalDateTime to,
+                             @Param("offset") int offset,
+                             @Param("limit") int limit);
+
+    long countPaged(@Param("platform") String platform,
+                    @Param("botId") String botId,
+                    @Param("groupId") String groupId,
+                    @Param("status") String status,
+                    @Param("from") LocalDateTime from,
+                    @Param("to") LocalDateTime to);
 }

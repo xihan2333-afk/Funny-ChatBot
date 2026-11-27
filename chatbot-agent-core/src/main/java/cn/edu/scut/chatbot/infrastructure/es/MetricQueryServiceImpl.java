@@ -80,7 +80,8 @@ public class MetricQueryServiceImpl implements MetricQueryService {
         LocalDateTime from = toDateTime(query.fromMillis());
         LocalDateTime to = toDateTime(query.toMillis());
         List<CostReport.CostRow> rows = llmCallLogMapper
-                .selectCostAggregation(query.dim().name(), from, to, query.groupId())
+                .selectCostAggregationFiltered(query.dim().name(), from, to,
+                        query.groupId(), query.platform(), query.botId(), query.slotCode(), query.modelId())
                 .stream()
                 .map(a -> new CostReport.CostRow(a.getDimensionKey(), a.getCalls(),
                         a.getInputTokens(), a.getOutputTokens(), a.getCachedTokens(), a.getCostAmount()))

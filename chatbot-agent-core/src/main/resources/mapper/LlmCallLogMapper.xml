@@ -45,7 +45,7 @@
     </select>
 
     <!-- 成本报表聚合：维度经 choose 映射为表达式（dim 是内部枚举字符串，不拼接外部输入） -->
-    <select id="selectCostAggregation" resultType="cn.edu.scut.chatbot.llm.slot.LlmCallLogAggregation">
+    <select id="selectCostAggregationFiltered" resultType="cn.edu.scut.chatbot.llm.slot.LlmCallLogAggregation">
         SELECT
         <choose>
             <when test="dim == 'GROUP'">CONCAT_WS(':', platform, bot_id, group_id)</when>
@@ -64,6 +64,10 @@
         <if test="from != null">AND created_at &gt;= #{from}</if>
         <if test="to != null">AND created_at &lt;= #{to}</if>
         <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
+        <if test="platform != null and platform != ''">AND platform = #{platform}</if>
+        <if test="botId != null and botId != ''">AND bot_id = #{botId}</if>
+        <if test="slotCode != null and slotCode != ''">AND slot_code = #{slotCode}</if>
+        <if test="modelId != null and modelId != ''">AND model_id = #{modelId}</if>
         GROUP BY 1
         ORDER BY 1
     </select>

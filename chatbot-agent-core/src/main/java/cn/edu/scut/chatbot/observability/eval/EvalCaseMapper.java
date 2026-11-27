@@ -21,6 +21,13 @@ public interface EvalCaseMapper {
 
     int updateStatus(@Param("id") long id, @Param("status") String status);
 
+    int updateCase(@Param("id") long id,
+                   @Param("caseType") String caseType,
+                   @Param("scenario") String scenario,
+                   @Param("rubric") String rubric,
+                   @Param("rubricVersion") int rubricVersion,
+                   @Param("status") String status);
+
     List<EvalCaseDO> selectByFilter(@Param("caseType") String caseType,
                                     @Param("status") String status,
                                     @Param("offset") int offset,

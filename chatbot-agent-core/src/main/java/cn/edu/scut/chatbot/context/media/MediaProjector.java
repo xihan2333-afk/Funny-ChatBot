@@ -2,8 +2,11 @@ package cn.edu.scut.chatbot.context.media;
 
 import cn.edu.scut.chatbot.loop.message.AgentMessage;
 import cn.edu.scut.chatbot.loop.message.AssistantMessage;
+import cn.edu.scut.chatbot.management.PageResult;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -34,33 +37,104 @@ public class MediaProjector {
      * setter 注入：未装配（隔离单测上下文）时回退静态定界，只丢检测不丢定界。
      */
     private cn.edu.scut.chatbot.security.delimit.DelimitGuard delimitGuard;
+    private EmojiMappingMapper emojiMappingMapper;
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     void setDelimitGuard(cn.edu.scut.chatbot.security.delimit.DelimitGuard guard) {
         this.delimitGuard = guard;
+    }
+
+    @Autowired(required = false)
+    void setEmojiMappingMapper(EmojiMappingMapper emojiMappingMapper) {
+        this.emojiMappingMapper = emojiMappingMapper;
     }
 
     public MediaProjector(VisionDescriber visionDescriber) {
         this.visionDescriber = visionDescriber;
     }
 
-    /**
-     * 表情包投影：指纹命中复用已有描述；未命中经视觉描述端口生成并缓存；
-     * 端口不可用或失败投占位行。描述文本来自视觉模型（不可信）——
-     * 以 untrusted 标签定界（US7 表情映射描述通道）
-     */
     public String projectEmoji(String fingerprint) {
-        String description = emojiFingerprints.get(fingerprint);
+        return projectEmoji("default", "default", "default", fingerprint);
+    }
+
+    /**
+     * 表情包投影（群三元组隔离 + MySQL 事实源 + 内存缓存同步）
+     */
+    public String projectEmoji(String platform, String botId, String groupId, String fingerprint) {
+        String cacheKey = cacheKey(platform, botId, groupId, fingerprint);
+        String description = emojiFingerprints.get(cacheKey);
+        if (description == null && emojiMappingMapper != null) {
+            EmojiMappingDO row = emojiMappingMapper.selectByGroupFingerprint(platform, botId, groupId, fingerprint);
+            if (row != null && row.getDescription() != null) {
+                description = row.getDescription();
+                emojiFingerprints.put(cacheKey, description);
+            }
+        }
         if (description == null) {
             description = visionDescriber.describe(fingerprint);
             if (description != null) {
-                // 命中即缓存（同指纹后续投影复用——不重复调用模型）
-                emojiFingerprints.put(fingerprint, description);
+                emojiFingerprints.put(cacheKey, description);
+                if (emojiMappingMapper != null) {
+                    EmojiMappingDO row = new EmojiMappingDO();
+                    row.setPlatform(platform);
+                    row.setBotId(botId);
+                    row.setGroupId(groupId);
+                    row.setFingerprint(fingerprint);
+                    row.setDescription(description);
+                    row.setSource("vision");
+                    emojiMappingMapper.upsert(row);
+                }
             }
         }
         return description != null
                 ? "[表情包：" + delimited(description) + "]"
                 : "[表情包：描述未就绪，占位行]";
+    }
+
+    public PageResult<EmojiMappingView> listEmojis(String platform, String botId, String groupId,
+                                                   String keyword, int page, int pageSize) {
+        if (emojiMappingMapper == null) {
+            return PageResult.of(List.of(), 0, page, pageSize);
+        }
+        int p = PageResult.normalizePage(page);
+        int ps = PageResult.normalizePageSize(pageSize);
+        long total = emojiMappingMapper.countPaged(platform, botId, groupId, keyword);
+        List<EmojiMappingView> items = emojiMappingMapper.selectPaged(
+                        platform, botId, groupId, keyword, PageResult.offset(p, ps), ps).stream()
+                .map(MediaProjector::toView)
+                .toList();
+        return PageResult.of(items, total, p, ps);
+    }
+
+    public EmojiMappingView correctEmojiDescription(long id, String description) {
+        if (emojiMappingMapper == null) {
+            throw new IllegalStateException("EmojiMappingMapper 未装配");
+        }
+        EmojiMappingDO existing = emojiMappingMapper.selectById(id);
+        if (existing == null) {
+            throw new cn.edu.scut.chatbot.exception.ChatBotException("mgmt.not_found", "表情包映射不存在 id=" + id);
+        }
+        emojiMappingMapper.updateDescription(id, description, "manual");
+        emojiFingerprints.put(cacheKey(existing.getPlatform(), existing.getBotId(),
+                existing.getGroupId(), existing.getFingerprint()), description);
+        return toView(emojiMappingMapper.selectById(id));
+    }
+
+    private static EmojiMappingView toView(EmojiMappingDO e) {
+        return new EmojiMappingView(
+                e.getId(), e.getPlatform(), e.getBotId(), e.getGroupId(),
+                e.getFingerprint(), e.getDescription(), e.getSource(),
+                e.getUpdatedAt() != null ? e.getUpdatedAt().toString() : null);
+    }
+
+    public record EmojiMappingView(
+            Long id, String platform, String botId, String groupId,
+            String fingerprint, String description, String source, String updatedAt
+    ) {
+    }
+
+    private static String cacheKey(String platform, String botId, String groupId, String fingerprint) {
+        return platform + ":" + botId + ":" + groupId + "|" + fingerprint;
     }
 
     /**
