@@ -4,7 +4,8 @@
 .vscode/
 .claude/
 .specify/
-chatbot-admin-web/
+chatbot-admin-web/node_modules/
+chatbot-admin-web/dist/
 deploy/volumes/
 */target/
 target/

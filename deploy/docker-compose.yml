@@ -144,6 +144,24 @@ services:
       start_period: 60s
     restart: unless-stopped
 
+  # 管理平台前端：Nginx 托管静态资源并反代 /api/management/ 到 agent-core
+  admin-web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.admin-web
+    depends_on:
+      agent-core:
+        condition: service_healthy
+    ports:
+      - "${ADMIN_WEB_PORT:-5173}:80"
+    healthcheck:
+      test: [ "CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1 || exit 1" ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+
   # 沙箱执行服务：独立进程（隔离边界部署原则——只有本服务挂 Docker 控制通道，agent-core 不挂）
   sandbox-executor:
     build:
