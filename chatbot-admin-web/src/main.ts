@@ -3,6 +3,7 @@ import {createPinia} from 'pinia'
 import ElementPlus, {ElMessage} from 'element-plus'
 import zhCn from 'element-plus/es/locale/lang/zh-cn'
 import 'element-plus/dist/index.css'
+import './styles/theme-1999.css'
 
 import App from './App.vue'
 import router from './router'
