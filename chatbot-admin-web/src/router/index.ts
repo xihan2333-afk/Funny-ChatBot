@@ -19,7 +19,7 @@ export const routes: RouteRecordRaw[] = [
     path: '/auth/change-password',
     name: 'change-password',
     component: () => import('@/views/auth/ChangePasswordView.vue'),
-    meta: {title: '修改管理员口令', allowMustChange: true},
+    meta: {title: '修改口令', allowMustChange: true},
   },
   {
     path: '/',
@@ -56,7 +56,7 @@ export const routes: RouteRecordRaw[] = [
         path: 'capability/personas',
         name: 'capability-personas',
         component: () => import('@/views/capability/PersonaView.vue'),
-        meta: {title: '人格库与演进提案'},
+        meta: {title: '人格库与演进'},
       },
       {
         path: 'capability/models',
@@ -80,7 +80,7 @@ export const routes: RouteRecordRaw[] = [
         path: 'capability/prompts',
         name: 'capability-prompts',
         component: () => import('@/views/capability/PromptView.vue'),
-        meta: {title: 'Prompt 片段管理'},
+        meta: {title: 'Prompt 管理'},
       },
       // 4. 安全与参数
       {
@@ -112,7 +112,7 @@ export const routes: RouteRecordRaw[] = [
         path: 'runtime/turns',
         name: 'runtime-turns',
         component: () => import('@/views/runtime/TurnView.vue'),
-        meta: {title: 'Turn 只读查询'},
+        meta: {title: 'Turn 查询'},
       },
       {
         path: 'runtime/tasks',
