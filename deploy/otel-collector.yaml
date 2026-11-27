@@ -13,6 +13,10 @@
 # 指标（javaagent 的 JVM 指标）0.98 的 elasticsearch exporter 不支持，列演进项；
 # runtime 报表在支持版本升级后自动有数据（查询侧读 metrics-* 数据流）。
 
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
 receivers:
   otlp:
     protocols:
@@ -29,6 +33,11 @@ processors:
   batch:
     timeout: 5s
     send_batch_size: 512
+  # 0.98.0 的 routing connector 仅评估 Resource 上下文，先把 log.category（及 appender 的 logback.mdc.log.category）提升为 Resource 属性并拆组
+  groupbyattrs/log_category:
+    keys:
+      - log.category
+      - logback.mdc.log.category
 
 connectors:
   # 日志按 log.category 路由（应用侧 CategoryRoutingOtlpAppender 附加的属性；
@@ -36,55 +45,51 @@ connectors:
   routing/logs:
     default_pipelines: [ logs/system ]
     table:
-      - context: log
-        condition: attributes["log.category"] == "agent"
+      - statement: route() where attributes["log.category"] == "agent" or attributes["logback.mdc.log.category"] == "agent"
         pipelines: [ logs/agent ]
 
 exporters:
   elasticsearch/traces:
     endpoints: [ "${env:ES_ENDPOINT}" ]
-    username: "${env:ES_USERNAME}"
+    user: "${env:ES_USERNAME}"
     password: "${env:ES_PASSWORD}"
-    # traces 数据流由 es-init 的索引模板建（traces-*，ILM 14 天）
-    traces_index: traces
-    traces_create_template: false
-    retry_on_failure:
+    # traces 数据流由 es-init 的索引模板建（traces-*，ILM 14 天；名需匹配 traces-* 才能落入数据流）
+    traces_index: traces-default
+    retry:
       enabled: true
       initial_interval: 1s
       max_interval: 30s
-      max_elapsed_time: 0s
 
   elasticsearch/logs-agent:
     endpoints: [ "${env:ES_ENDPOINT}" ]
-    username: "${env:ES_USERNAME}"
+    user: "${env:ES_USERNAME}"
     password: "${env:ES_PASSWORD}"
-    logs_index: logs-agent
+    logs_index: logs-agent-default
     logs_dynamic_index:
       enabled: false
     mapping:
       mode: ecs
-    retry_on_failure:
+    retry:
       enabled: true
       initial_interval: 1s
       max_interval: 30s
-      max_elapsed_time: 0s
 
   elasticsearch/logs-system:
     endpoints: [ "${env:ES_ENDPOINT}" ]
-    username: "${env:ES_USERNAME}"
+    user: "${env:ES_USERNAME}"
     password: "${env:ES_PASSWORD}"
-    logs_index: logs-system
+    logs_index: logs-system-default
     logs_dynamic_index:
       enabled: false
     mapping:
       mode: ecs
-    retry_on_failure:
+    retry:
       enabled: true
       initial_interval: 1s
       max_interval: 30s
-      max_elapsed_time: 0s
 
 service:
+  extensions: [ health_check ]
   telemetry:
     metrics:
       address: 0.0.0.0:8888
@@ -94,9 +99,10 @@ service:
       receivers: [ otlp ]
       processors: [ memory_limiter, batch ]
       exporters: [ elasticsearch/traces ]
-    # 日志先经路由再进各自管道（routing connector 是中转站，自身不带 processor）
+    # 日志先提升 log.category 为 Resource 属性，再经路由进各自管道
     logs/router:
       receivers: [ otlp ]
+      processors: [ groupbyattrs/log_category ]
       exporters: [ routing/logs ]
     logs/agent:
       receivers: [ routing/logs ]

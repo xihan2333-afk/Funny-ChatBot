@@ -8,10 +8,13 @@ import cn.edu.scut.chatbot.contract.message.AtPart;
 import cn.edu.scut.chatbot.contract.message.TextPart;
 import cn.edu.scut.chatbot.engine.effect.EffectsQueueDO;
 import cn.edu.scut.chatbot.engine.effect.EffectsQueueMapper;
+import cn.edu.scut.chatbot.engine.events.EngineEvent;
+import cn.edu.scut.chatbot.engine.events.EngineEventPublisher;
 import cn.edu.scut.chatbot.engine.gate.L0Gate;
 import cn.edu.scut.chatbot.exception.CommandRejectedException;
 import cn.edu.scut.chatbot.infrastructure.redis.GroupStateHash;
 import cn.edu.scut.chatbot.infrastructure.redis.InboundStreamConsumer;
+import cn.edu.scut.chatbot.security.gatepolicy.GatePolicyService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -82,14 +85,24 @@ public class InboundDispatch implements InboundStreamConsumer.InboundHandler {
      * 引擎事件发布器（L0 决策结论发射——观测桥据此开 gate.l0 Span 与 turn Span）。
      * setter 注入可选装配：未装配时零开销，测试构造不受扰。
      */
-    private cn.edu.scut.chatbot.engine.events.EngineEventPublisher engineEvents;
+    private EngineEventPublisher engineEvents;
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
-    void setEngineEventPublisher(cn.edu.scut.chatbot.engine.events.EngineEventPublisher publisher) {
+    void setEngineEventPublisher(EngineEventPublisher publisher) {
         this.engineEvents = publisher;
     }
 
-    private void emitEngineEvent(cn.edu.scut.chatbot.engine.events.EngineEvent event) {
+    /**
+     * 安全闸策略数据面（US8：blacklist 表用户黑名单——L0 消费，命中直接忽略即使 @bot）
+     */
+    private GatePolicyService gatePolicyService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setGatePolicyService(GatePolicyService service) {
+        this.gatePolicyService = service;
+    }
+
+    private void emitEngineEvent(EngineEvent event) {
         if (engineEvents != null) {
             engineEvents.publish(event);
         }
@@ -211,6 +224,15 @@ public class InboundDispatch implements InboundStreamConsumer.InboundHandler {
             }
         }
 
+        List<String> blacklist = blacklistOf(config);
+        if (gatePolicyService != null && senderUserId != null
+                && gatePolicyService.isBlacklisted(envelope.platform(), envelope.botId(),
+                envelope.groupId(), senderUserId)) {
+            java.util.ArrayList<String> merged = new java.util.ArrayList<>(blacklist);
+            merged.add(senderUserId);
+            blacklist = merged;
+        }
+
         return new L0Gate.L0Context(
                 envelope.type(),
                 senderUserId,
@@ -218,7 +240,7 @@ public class InboundDispatch implements InboundStreamConsumer.InboundHandler {
                 slashCommand,
                 isBotSelf(envelope),
                 group != null && GroupDO.LIFECYCLE_PAUSED.equals(group.getLifecycle()),
-                blacklistOf(config),
+                blacklist,
                 envelope.groupId() != null
                         ? groupStateHash.cooldownRemainingMillis(
                         envelope.platform(), envelope.botId(), envelope.groupId(), cooldownMillis)

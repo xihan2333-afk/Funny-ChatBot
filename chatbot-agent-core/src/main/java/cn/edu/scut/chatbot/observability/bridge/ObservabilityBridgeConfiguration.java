@@ -49,11 +49,48 @@ public class ObservabilityBridgeConfiguration {
         // OTLP 日志 appender 装配：全局 OTel 实例（javaagent 在场 = agent 的；缺席 = Bootstrap
         // 自建兜底的；noop 下日志导出为空转）。append 们不配置 openTelemetry 即消费此实例。
         try {
-            OpenTelemetryAppender.install(GlobalOpenTelemetry.get());
+            io.opentelemetry.api.OpenTelemetry otel = GlobalOpenTelemetry.get();
+            OpenTelemetryAppender.install(otel);
+            installNestedOtlpAppenders(otel);
         } catch (Exception installFailure) {
             // 日志外发缺席不阻断启动（可丢不可卡——FR-026）
         }
         return new ObservabilityBridgeWiring(bridgeShell);
+    }
+
+    /**
+     * OpenTelemetryAppender.install 只扫 Logger 直接挂载的 appender，不会钻进 AsyncAppender；
+     * logback-spring.xml 里 OTLP_RAW 包在 OTLP_ASYNC 内，需递归下钻安装（否则 log.category 与 MDC 不外发）。
+     */
+    @SuppressWarnings("unchecked")
+    private static void installNestedOtlpAppenders(io.opentelemetry.api.OpenTelemetry otel) {
+        org.slf4j.ILoggerFactory factory = org.slf4j.LoggerFactory.getILoggerFactory();
+        if (!(factory instanceof ch.qos.logback.classic.LoggerContext ctx)) {
+            return;
+        }
+        for (ch.qos.logback.classic.Logger logger : ctx.getLoggerList()) {
+            java.util.Iterator<ch.qos.logback.core.Appender<ch.qos.logback.classic.spi.ILoggingEvent>> it =
+                    logger.iteratorForAppenders();
+            while (it.hasNext()) {
+                walkAppender(it.next(), otel);
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void walkAppender(ch.qos.logback.core.Appender<?> appender,
+                                     io.opentelemetry.api.OpenTelemetry otel) {
+        if (appender instanceof OpenTelemetryAppender otlp) {
+            otlp.setOpenTelemetry(otel);
+            return;
+        }
+        if (appender instanceof ch.qos.logback.core.spi.AppenderAttachable<?> attachable) {
+            java.util.Iterator<? extends ch.qos.logback.core.Appender<?>> nested =
+                    attachable.iteratorForAppenders();
+            while (nested.hasNext()) {
+                walkAppender(nested.next(), otel);
+            }
+        }
     }
 
     /**

@@ -115,4 +115,12 @@ public interface MemoryEntryMapper {
     long countSedimentBetween(@Param("from") java.time.LocalDateTime from,
                               @Param("to") java.time.LocalDateTime to,
                               @Param("groupId") String groupId);
+
+    /**
+     * 查询单群内某用户的全部记忆条目 id（US12 个体数据清除——供 MySQL 与 Qdrant 双库同删）
+     */
+    List<Long> selectIdsByGroupAndUser(@Param("platform") String platform,
+                                       @Param("botId") String botId,
+                                       @Param("groupId") String groupId,
+                                       @Param("userId") String userId);
 }

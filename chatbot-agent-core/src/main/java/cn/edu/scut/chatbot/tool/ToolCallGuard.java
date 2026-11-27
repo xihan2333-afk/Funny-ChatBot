@@ -49,6 +49,36 @@ public class ToolCallGuard {
     private final java.time.Clock clock;
 
     /**
+     * 安全闸策略数据面（US8：runCode 群级每日频控经 Redis 窗口键，拨钟跨日重置）
+     */
+    private cn.edu.scut.chatbot.security.gatepolicy.GatePolicyService gatePolicyService;
+
+    /**
+     * 安全事件统一入口（US8/US10：beforeToolCall 拦截同步记 gateBlocked）
+     */
+    private cn.edu.scut.chatbot.security.audit.SecurityEventRecorder securityEventRecorder;
+
+    /**
+     * 工具 Span 安全标记（US10 T089：beforeToolCall 拦截同步挂 intercepted / rule / channel）
+     */
+    private cn.edu.scut.chatbot.security.audit.SpanSecurityMarker spanSecurityMarker;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setGatePolicyService(cn.edu.scut.chatbot.security.gatepolicy.GatePolicyService service) {
+        this.gatePolicyService = service;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setSecurityEventRecorder(cn.edu.scut.chatbot.security.audit.SecurityEventRecorder recorder) {
+        this.securityEventRecorder = recorder;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setSpanSecurityMarker(cn.edu.scut.chatbot.security.audit.SpanSecurityMarker marker) {
+        this.spanSecurityMarker = marker;
+    }
+
+    /**
      * 群 → 日计数（runCode 频控：yyyy-MM-dd 重置；进程内承载——单实例部署的第一版口径）
      */
     private final Map<String, DayCounter> runCodeUsage = new ConcurrentHashMap<>();
@@ -85,6 +115,7 @@ public class ToolCallGuard {
         }
         List<String> groupDisabled = groupDisabledTools(platform, botId, groupId);
         if (groupDisabled.contains(toolName)) {
+            recordGateBlocked(platform, botId, groupId, toolName, "groupDisabled");
             return intercepted(toolName, "该群已禁用工具 " + toolName + "，本次调用被拦截");
         }
         if (descriptor.effectKind() == ToolDescriptor.EffectKind.LOCAL_EXECUTION
@@ -94,6 +125,7 @@ public class ToolCallGuard {
         if (descriptor.effectKind() == ToolDescriptor.EffectKind.GROUP_SIDE_EFFECT) {
             String filtered = contentFilterHit(invocation.argumentsJson());
             if (filtered != null) {
+                recordGateBlocked(platform, botId, groupId, toolName, "contentFilter:" + filtered);
                 // 终止循环：继续只会换措辞重试再次命中过滤，直接收敛本次 Run（设计 :673/:720）
                 return new LoopHooks.BeforeToolCallHook.Interception(
                         AgentToolResult.errorTerminating(
@@ -104,10 +136,23 @@ public class ToolCallGuard {
     }
 
     /**
-     * runCode 频控：每群每日上限（默认 20 次，安全章数值；运行层参数热变更）
+     * runCode 频控：每群每日上限（默认 20 次，安全章数值；优先经 GatePolicyService Redis 窗口键，
+     * 未装配时退回进程内计数兼容隔离单测）
      */
     private LoopHooks.BeforeToolCallHook.Interception checkRunCodeQuota(
             String platform, String botId, String groupId, String toolName) {
+        if (gatePolicyService != null) {
+            cn.edu.scut.chatbot.security.gatepolicy.GatePolicyService.FrequencyVerdict verdict =
+                    gatePolicyService.checkRunCodeQuota(platform, botId, groupId);
+            if (!verdict.allowed()) {
+                log.warn("runCode 群级频控触限 group={} used={} limit={}",
+                        groupId, verdict.used(), verdict.limit());
+                recordGateBlocked(platform, botId, groupId, toolName, "runCodeQuota");
+                return intercepted(toolName,
+                        "该群今日代码执行已达上限（" + verdict.limit() + " 次），明天再试");
+            }
+            return null;
+        }
         int dailyLimit = systemParamService.getInt("sandbox.daily_limit_per_group", 20);
         if (dailyLimit <= 0) {
             return null;   // 不限（安全章显式关闭频控的形态）
@@ -122,10 +167,39 @@ public class ToolCallGuard {
         }).increment();
         if (used > dailyLimit) {
             log.warn("runCode 群级频控触限 key={} used={} limit={}", key, used, dailyLimit);
+            recordGateBlocked(platform, botId, groupId, toolName, "runCodeQuota");
             return intercepted(toolName,
                     "该群今日代码执行已达上限（" + dailyLimit + " 次），明天再试");
         }
         return null;
+    }
+
+    private void recordGateBlocked(String platform, String botId, String groupId,
+                                   String toolName, String rule) {
+        if (spanSecurityMarker != null) {
+            try {
+                spanSecurityMarker.emitInterceptedToolSpan(
+                        toolName, rule, "beforeToolCall", platform, botId, groupId);
+            } catch (Exception e) {
+                log.warn("tool Span 安全标记发射失败 tool={}", toolName, e);
+            }
+        }
+        if (securityEventRecorder == null) {
+            return;
+        }
+        try {
+            io.opentelemetry.api.trace.SpanContext ctx =
+                    io.opentelemetry.api.trace.Span.current().getSpanContext();
+            String traceId = (ctx != null && ctx.isValid()) ? ctx.getTraceId()
+                    : org.slf4j.MDC.get("traceId");
+            securityEventRecorder.record(
+                    cn.edu.scut.chatbot.security.audit.SecurityEventKind.GATE_BLOCKED,
+                    cn.edu.scut.chatbot.security.audit.SecurityDims.ofGroup(platform, botId, groupId),
+                    Map.of("toolName", toolName, "rule", rule),
+                    traceId);
+        } catch (Exception e) {
+            log.warn("gateBlocked 审计记录失败（不影响拦截） tool={}", toolName, e);
+        }
     }
 
     /**

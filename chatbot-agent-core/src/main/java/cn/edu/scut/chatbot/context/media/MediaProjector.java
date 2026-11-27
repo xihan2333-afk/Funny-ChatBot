@@ -29,13 +29,25 @@ public class MediaProjector {
      */
     private final VisionDescriber visionDescriber;
 
+    /**
+     * 定界 + 注入检测组合件（US7 视觉描述通道——表情映射与图片降级描述归 VISION）。
+     * setter 注入：未装配（隔离单测上下文）时回退静态定界，只丢检测不丢定界。
+     */
+    private cn.edu.scut.chatbot.security.delimit.DelimitGuard delimitGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setDelimitGuard(cn.edu.scut.chatbot.security.delimit.DelimitGuard guard) {
+        this.delimitGuard = guard;
+    }
+
     public MediaProjector(VisionDescriber visionDescriber) {
         this.visionDescriber = visionDescriber;
     }
 
     /**
      * 表情包投影：指纹命中复用已有描述；未命中经视觉描述端口生成并缓存；
-     * 端口不可用或失败投占位行
+     * 端口不可用或失败投占位行。描述文本来自视觉模型（不可信）——
+     * 以 untrusted 标签定界（US7 表情映射描述通道）
      */
     public String projectEmoji(String fingerprint) {
         String description = emojiFingerprints.get(fingerprint);
@@ -47,8 +59,18 @@ public class MediaProjector {
             }
         }
         return description != null
-                ? "[表情包：" + description + "]"
+                ? "[表情包：" + delimited(description) + "]"
                 : "[表情包：描述未就绪，占位行]";
+    }
+
+    /**
+     * 视觉描述定界（描述模型输出是不可信内容——图片里可能有字，字可能是指令）
+     */
+    private String delimited(String description) {
+        return delimitGuard != null
+                ? delimitGuard.wrap(description, cn.edu.scut.chatbot.security.delimit.DelimitHeaders.Src.VISION)
+                : cn.edu.scut.chatbot.security.delimit.DelimitHeaders.wrap(description,
+                cn.edu.scut.chatbot.security.delimit.DelimitHeaders.Src.VISION);
     }
 
     /**
@@ -70,7 +92,7 @@ public class MediaProjector {
         if (description == null) {
             description = visionDescriber.describe(imageRef);
         }
-        return "[图片" + (description != null ? "：" + description : "：描述未就绪") + "]";
+        return "[图片" + (description != null ? "：" + delimited(description) : "：描述未就绪") + "]";
     }
 
     /**

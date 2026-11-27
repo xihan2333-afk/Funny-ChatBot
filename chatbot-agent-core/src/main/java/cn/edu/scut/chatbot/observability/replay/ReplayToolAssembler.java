@@ -53,6 +53,10 @@ public class ReplayToolAssembler {
             } else if (TOOL_CREATE_TASK.equals(name)) {
                 taskShadow = new ShadowCreateTask(tool, taskCoordinator);
                 shadowed.add(taskShadow);
+            } else if (tool.descriptor().effectKind()
+                    == cn.edu.scut.chatbot.loop.ToolDescriptor.EffectKind.GROUP_SIDE_EFFECT) {
+                // 其余群副作用工具（如 setReaction）同样影子化，保证重放 Outbox 零写入铁律
+                shadowed.add(new ShadowGroupSideEffectTool(tool));
             } else {
                 shadowed.add(tool);
             }
@@ -92,6 +96,30 @@ public class ReplayToolAssembler {
         public cn.edu.scut.chatbot.loop.AgentToolResult execute(
                 cn.edu.scut.chatbot.loop.ToolInvocation invocation) {
             throw new IllegalStateException("重放兜底 sendMessage 不应被调用");
+        }
+    }
+
+    /**
+     * 非 sendMessage 的群副作用工具影子包装（如 setReaction）：不触达 OutboxWriter，零平台投递
+     */
+    private static final class ShadowGroupSideEffectTool implements AgentTool {
+
+        private final cn.edu.scut.chatbot.loop.ToolDescriptor descriptor;
+
+        ShadowGroupSideEffectTool(AgentTool delegate) {
+            this.descriptor = delegate.descriptor();
+        }
+
+        @Override
+        public cn.edu.scut.chatbot.loop.ToolDescriptor descriptor() {
+            return descriptor;
+        }
+
+        @Override
+        public cn.edu.scut.chatbot.loop.AgentToolResult execute(
+                cn.edu.scut.chatbot.loop.ToolInvocation invocation) {
+            return cn.edu.scut.chatbot.loop.AgentToolResult.text(
+                    "已执行（影子重放拦截群副作用，零 Outbox 写入：" + descriptor.name() + "）");
         }
     }
 }

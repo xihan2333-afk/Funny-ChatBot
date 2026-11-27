@@ -287,7 +287,8 @@ public class AgentLoop {
         }
         ToolInvocation invocation = new ToolInvocation(
                 call.argumentsJson(), spec.platform(), spec.botId(), spec.groupId(),
-                spec.config().form(), spec.turnId(), spec.taskId(), call.name());
+                spec.config().form(), spec.turnId(), spec.taskId(), call.name(),
+                spec.context().systemPrompt());
         invocations.put(index, invocation);
 
         LoopHooks.BeforeToolCallHook.Interception interception =

@@ -76,4 +76,12 @@ public interface AgentSessionMapper {
      * 发言与工具结果清空，k 次执行彼此独立）
      */
     int deleteReplayTransient(@Param("sessionId") long sessionId);
+
+    /**
+     * 个体数据清除（US12）：删除指定群内该用户的发言转录条目（kind='user' 且 senderUserId 匹配）
+     */
+    int deleteUserTranscriptByGroup(@Param("platform") String platform,
+                                    @Param("botId") String botId,
+                                    @Param("groupId") String groupId,
+                                    @Param("userId") String userId);
 }

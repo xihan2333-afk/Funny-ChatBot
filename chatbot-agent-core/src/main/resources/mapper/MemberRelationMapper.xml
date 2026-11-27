@@ -47,4 +47,13 @@
           AND user_id_b = #{userIdB}
     </select>
 
+    <delete id="deleteByGroupAndUser">
+        DELETE
+        FROM member_relation
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+          AND (user_id_a = #{userId} OR user_id_b = #{userId})
+    </delete>
+
 </mapper>

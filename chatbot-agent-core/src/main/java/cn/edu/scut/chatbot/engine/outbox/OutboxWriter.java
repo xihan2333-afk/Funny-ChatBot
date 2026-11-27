@@ -8,6 +8,9 @@ import cn.edu.scut.chatbot.engine.effect.EffectsQueueMapper;
 import cn.edu.scut.chatbot.engine.turn.TurnDO;
 import cn.edu.scut.chatbot.engine.turn.TurnMapper;
 import cn.edu.scut.chatbot.engine.turn.TurnStatus;
+import cn.edu.scut.chatbot.security.audit.SecurityDims;
+import cn.edu.scut.chatbot.security.audit.SecurityEventKind;
+import cn.edu.scut.chatbot.security.audit.SecurityEventRecorder;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
@@ -18,7 +21,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 出站闭环（spec US3、契约 redis-streams 第 2 节）：enqueueOutbound 先落库取得 outboxId
@@ -79,6 +84,56 @@ public class OutboxWriter {
                     outbox.getPlatform(), outbox.getBotId(), outbox.getGroupId(),
                     outbox.getId(), status, traceIdOf(outbox.getTraceContext()),
                     outbox.getTraceContext()));
+        }
+    }
+
+    /**
+     * 安全事件记录器（US8 平台拒发回流闭环：拒发结算 → security_event(contentFiltered,
+     * source=platform) 含发言摘要——人工复核后经管理面补 converted 词库）。
+     * setter 注入可选装配：未装配时零开销，测试构造不受扰。
+     */
+    private SecurityEventRecorder securityEventRecorder;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setSecurityEventRecorder(SecurityEventRecorder recorder) {
+        this.securityEventRecorder = recorder;
+    }
+
+    /**
+     * 平台拒发留痕（contentFiltered 的拒发回流形态——source=platform 区分于快筛拦截）
+     */
+    private void recordPlatformReject(OutboxDO outbox, String failureKind) {
+        if (securityEventRecorder == null) {
+            return;
+        }
+        try {
+            Map<String, Object> detail = new LinkedHashMap<>();
+            detail.put("source", "platform");
+            detail.put("failureKind", failureKind);
+            detail.put("outboxId", outbox.getId());
+            detail.put("speechSnippet", speechSnippetOf(outbox));
+            securityEventRecorder.record(
+                    SecurityEventKind.CONTENT_FILTERED,
+                    SecurityDims.ofGroup(
+                            outbox.getPlatform(), outbox.getBotId(), outbox.getGroupId()),
+                    detail, traceIdOf(outbox.getTraceContext()));
+        } catch (Exception e) {
+            log.warn("平台拒发事件记录失败（不影响结算） outboxId={}", outbox.getId(), e);
+        }
+    }
+
+    /**
+     * 拒发发言的文本摘要（payload 是 SendGroupMessagePayload JSON——取首个 text 段）
+     */
+    private String speechSnippetOf(OutboxDO outbox) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode payload = cn.edu.scut.chatbot.bootstrap.JsonMappers
+                    .shared().readTree(outbox.getPayload());
+            String text = payload.path("parts").path(0).path("text").asText("");
+            String compact = text.replaceAll("\\s+", " ").trim();
+            return compact.length() <= 120 ? compact : compact.substring(0, 120);
+        } catch (Exception e) {
+            return "";
         }
     }
 
@@ -154,6 +209,9 @@ public class OutboxWriter {
                             errorCode, null, null, clock.millis(), false),
                     outbox.getPlatform(), outbox.getBotId(), outbox.getGroupId());
             emitDeliverySettled(outbox, status);
+            if (OutboxDO.STATUS_FAILED.equals(status)) {
+                recordPlatformReject(outbox, errorCode);
+            }
         }
         if (outbox.getTurnId() != null) {
             advanceTurnSettlement(outbox.getTurnId());
@@ -185,6 +243,9 @@ public class OutboxWriter {
             transcriptIntakeWriter.writeDeliveryReport(report,
                     outbox.getPlatform(), outbox.getBotId(), outbox.getGroupId());
             emitDeliverySettled(outbox, status);
+            if (OutboxDO.STATUS_FAILED.equals(status)) {
+                recordPlatformReject(outbox, report.failureKind());
+            }
         }
 
         if (outbox.getTurnId() == null) {

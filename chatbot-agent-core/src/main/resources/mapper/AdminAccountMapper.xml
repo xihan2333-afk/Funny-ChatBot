@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.security.credential.AdminAccountMapper">
+
+    <select id="countAll" resultType="long">
+        SELECT COUNT(*)
+        FROM admin_account
+    </select>
+
+    <select id="selectByUsername" resultType="cn.edu.scut.chatbot.security.credential.AdminAccountDO">
+        SELECT id,
+               username,
+               password_hash AS passwordHash,
+               must_change   AS mustChange,
+               updated_at    AS updatedAt
+        FROM admin_account
+        WHERE username = #{username} LIMIT 1
+    </select>
+
+    <select id="selectPrimary" resultType="cn.edu.scut.chatbot.security.credential.AdminAccountDO">
+        SELECT id,
+               username,
+               password_hash AS passwordHash,
+               must_change   AS mustChange,
+               updated_at    AS updatedAt
+        FROM admin_account
+        ORDER BY id ASC LIMIT 1
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO admin_account (username, password_hash, must_change)
+        VALUES (#{username}, #{passwordHash}, #{mustChange})
+    </insert>
+
+    <update id="updatePassword">
+        UPDATE admin_account
+        SET password_hash = #{passwordHash},
+            must_change   = #{mustChange}
+        WHERE id = #{id}
+    </update>
+</mapper>

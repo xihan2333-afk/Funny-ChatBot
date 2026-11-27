@@ -120,4 +120,12 @@
           AND created_at &lt; #{deadline}
     </update>
 
+    <select id="countByGroup" resultType="long">
+        SELECT COUNT(*)
+        FROM outbox
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+    </select>
+
 </mapper>

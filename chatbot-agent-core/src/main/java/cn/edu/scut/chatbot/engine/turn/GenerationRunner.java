@@ -10,11 +10,15 @@ import cn.edu.scut.chatbot.engine.task.TaskDO;
 import cn.edu.scut.chatbot.engine.task.TaskMapper;
 import cn.edu.scut.chatbot.engine.task.TaskStatus;
 import cn.edu.scut.chatbot.infrastructure.eventbus.BoundedEventListener;
+import cn.edu.scut.chatbot.infrastructure.eventbus.LoopEventWiring;
 import cn.edu.scut.chatbot.loop.*;
 import cn.edu.scut.chatbot.loop.hooks.LoopHooks;
 import cn.edu.scut.chatbot.loop.message.SystemNote;
+import cn.edu.scut.chatbot.security.delimit.DelimitGuard;
+import cn.edu.scut.chatbot.security.delimit.DelimitHeaders;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -106,7 +110,7 @@ public class GenerationRunner {
      */
     private cn.edu.scut.chatbot.memory.profile.AttitudeNoteRenderer attitudeNoteRenderer;
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     void setAttitudeNoteRenderer(cn.edu.scut.chatbot.memory.profile.AttitudeNoteRenderer renderer) {
         this.attitudeNoteRenderer = renderer;
     }
@@ -116,19 +120,30 @@ public class GenerationRunner {
      */
     private cn.edu.scut.chatbot.memory.emotion.EmotionService emotionService;
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     void setEmotionService(cn.edu.scut.chatbot.memory.emotion.EmotionService service) {
         this.emotionService = service;
+    }
+
+    /**
+     * 定界 + 注入检测组合件（US7 不可信变量通道——现注区态度行）——setter 注入同上：
+     * 未装配时回退静态定界，只丢检测不丢定界
+     */
+    private DelimitGuard delimitGuard;
+
+    @Autowired(required = false)
+    void setDelimitGuard(DelimitGuard guard) {
+        this.delimitGuard = guard;
     }
 
     /**
      * 循环事件装配工厂（观测桥经它把消费方挂进每 Run 的监听器——engine 不触达 observability）。
      * setter 注入可选装配：未装配时退回既有共享监听器形态。
      */
-    private cn.edu.scut.chatbot.infrastructure.eventbus.LoopEventWiring loopEventWiring;
+    private LoopEventWiring loopEventWiring;
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
-    void setLoopEventWiring(cn.edu.scut.chatbot.infrastructure.eventbus.LoopEventWiring wiring) {
+    @Autowired(required = false)
+    void setLoopEventWiring(LoopEventWiring wiring) {
         this.loopEventWiring = wiring;
     }
 
@@ -604,8 +619,9 @@ public class GenerationRunner {
             augmented.add(new SystemNote(
                     Long.toUnsignedString(idGenerator.nextId()), clock.instant(), 50, null,
                     "attitude-note",
-                    cn.edu.scut.chatbot.security.delimit.DelimitHeaders.wrap(
-                            "本批发言人的态度参考（数据）：\n" + String.join("\n", lines))));
+                    delimitGuard != null
+                            ? delimitGuard.wrap("本批发言人的态度参考（数据）：\n" + String.join("\n", lines), DelimitHeaders.Src.VARIABLE)
+                            : DelimitHeaders.wrap("本批发言人的态度参考（数据）：\n" + String.join("\n", lines), DelimitHeaders.Src.VARIABLE)));
         } catch (Exception e) {
             // 态度行是增强注记——失败不影响生成
             log.warn("态度行现注失败（不影响生成） sessionId={}", session.getId(), e);
@@ -643,10 +659,31 @@ public class GenerationRunner {
     }
 
     /**
-     * 兜底发言补投：经 sendMessage 唯一出口落 outbox（裸文本只是腹稿——投递必经出口）
+     * 出站快筛（US8 硬防线兜底校验：裸文本补投同样必须过词库检查，绝不绕过快筛写 Outbox）
+     */
+    private cn.edu.scut.chatbot.security.gatepolicy.OutboundScreenService outboundScreenService;
+
+    @Autowired(required = false)
+    void setOutboundScreenService(cn.edu.scut.chatbot.security.gatepolicy.OutboundScreenService service) {
+        this.outboundScreenService = service;
+    }
+
+    /**
+     * 兜底发言补投：经 sendMessage 唯一出口落 outbox（裸文本只是腹稿——投递必经出口且过出站快筛）
      */
     private long sendFallback(TurnDO turn, String fallbackText) {
         try {
+            if (outboundScreenService != null) {
+                var verdict = outboundScreenService.screen(fallbackText, null,
+                        cn.edu.scut.chatbot.security.audit.SecurityDims.ofGroup(
+                                turn.getPlatform(), turn.getBotId(), turn.getGroupId()),
+                        org.slf4j.MDC.get("traceId"));
+                if (verdict.blocked()) {
+                    log.warn("兜底发言被出站快筛拦截（Outbox 零写入） turnId={} errorCode={}",
+                            turn.getId(), verdict.errorCode());
+                    return -1;
+                }
+            }
             String payloadJson = cn.edu.scut.chatbot.bootstrap.JsonMappers.valueToStringOrNull(
                     new cn.edu.scut.chatbot.contract.out.SendGroupMessagePayload(
                             List.of(new cn.edu.scut.chatbot.contract.message.TextPart(

@@ -109,4 +109,25 @@ class ArchitectureRulesTest {
 
         notIntoDoOrMapper.check(classes);
     }
+
+    /**
+     * 守护纪律：SafeFetcher 唯一出站点固化（FR-025、T077）——对外网页抓取与链接预取不得
+     * 绕过 SafeFetcher 直接使用 RestTemplate 或 java.net.URL 建连。
+     */
+    @Test
+    void 网页抓取与链接预取不得绕过SafeFetcher() {
+        JavaClasses classes = new ClassFileImporter()
+                .withImportOption(new ImportOption.DoNotIncludeTests())
+                .importPackages("cn.edu.scut.chatbot");
+
+        ArchRule safeFetcherOnly = noClasses()
+                .that().resideInAnyPackage("..chatbot.context.link..")
+                .or().haveSimpleName("FetchWebTool")
+                .should().dependOnClassesThat().haveFullyQualifiedName(
+                        "org.springframework.web.client.RestTemplate")
+                .allowEmptyShould(true)
+                .because("对外网页抓取与链接预取必须统一经 SafeFetcher 出站（六项 SSRF 防护），不得绕过");
+
+        safeFetcherOnly.check(classes);
+    }
 }

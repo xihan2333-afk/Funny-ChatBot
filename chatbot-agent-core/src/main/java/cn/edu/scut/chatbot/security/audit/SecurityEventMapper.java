@@ -19,6 +19,15 @@ public interface SecurityEventMapper {
     long countByKindSince(String eventKind, LocalDateTime since);
 
     /**
+     * 某类事件在指定群三元组与窗口内的条数（对抗测试隔离计数，防线上真实群事件串扰）
+     */
+    long countByKindGroupSince(@org.apache.ibatis.annotations.Param("eventKind") String eventKind,
+                               @org.apache.ibatis.annotations.Param("platform") String platform,
+                               @org.apache.ibatis.annotations.Param("botId") String botId,
+                               @org.apache.ibatis.annotations.Param("groupId") String groupId,
+                               @org.apache.ibatis.annotations.Param("since") LocalDateTime since);
+
+    /**
      * 全部安全事件在窗口内的条数（拦截率突增探针：近 1 小时计数 vs 7 日基线）
      */
     long countAllSince(LocalDateTime since);

@@ -65,7 +65,7 @@
          CategoryRoutingOtlpAppender 按 logger 前缀附加 log.category 属性
          （agent / system），Collector 据此路由两个日志数据流 -->
     <appender name="OTLP_RAW" class="cn.edu.scut.chatbot.observability.bridge.CategoryRoutingOtlpAppender">
-        <captureMdcAttributes>log.category</captureMdcAttributes>
+        <captureMdcAttributes>log.category,groupId,turnId</captureMdcAttributes>
         <!-- 安装前缓存条数取最小值 1：OTel logback appender 1.33.6-alpha 的 start() 直接
              把该值当 ArrayBlockingQueue 容量，0 是非法容量（抛 IllegalArgumentException），
              Spring Boot 会把这类配置错误升级为启动失败；为 1 即“安装前几乎不缓存重放” -->

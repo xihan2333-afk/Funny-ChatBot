@@ -77,6 +77,35 @@ public class ReplayService {
     private final IdGenerator idGenerator;
     private final Clock clock;
 
+    /**
+     * 对抗测试可选协作者（US11 T096/T097）：memory 通道沉淀前置钩子 + 真实 Outbox/沙箱异常计数。
+     * setter 注入保持既有构造器与单测零破坏。
+     */
+    private cn.edu.scut.chatbot.memory.sediment.SedimentWorker sedimentWorker;
+    private cn.edu.scut.chatbot.memory.sediment.SedimentJobMapper sedimentJobMapper;
+    private cn.edu.scut.chatbot.engine.outbox.OutboxMapper outboxMapper;
+    private cn.edu.scut.chatbot.security.audit.SecurityEventMapper securityEventMapper;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setSedimentWorker(cn.edu.scut.chatbot.memory.sediment.SedimentWorker worker) {
+        this.sedimentWorker = worker;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setSedimentJobMapper(cn.edu.scut.chatbot.memory.sediment.SedimentJobMapper mapper) {
+        this.sedimentJobMapper = mapper;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setOutboxMapper(cn.edu.scut.chatbot.engine.outbox.OutboxMapper mapper) {
+        this.outboxMapper = mapper;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setSecurityEventMapper(cn.edu.scut.chatbot.security.audit.SecurityEventMapper mapper) {
+        this.securityEventMapper = mapper;
+    }
+
     public ReplayService(EvalCaseMapper caseMapper,
                          EvalBatchMapper batchMapper,
                          EvalResultMapper resultMapper,
@@ -189,11 +218,222 @@ public class ReplayService {
         } catch (NonRetryableException e) {
             throw e;
         } catch (Exception e) {
-            log.error("重放执行异常（caseId={}）：{}", caze.getId(), e.getMessage(), e);
+            log.error("重放执行异常 errorCode={} traceId=n/a caseId={} reason={}",
+                    ErrorCodes.OBSERVE_EVAL_INVALID, caze.getId(), e.getMessage(), e);
             return new ReplayReport(0, caze.getId(), 0, 0, 0.0, null, List.of(), null,
                     "重放执行异常：" + e.getMessage());
         } finally {
             concurrencyGate.release();
+        }
+    }
+
+    /**
+     * 注入对抗测试执行入口（US11 T096，eval-and-flywheel 契约第 4、7 节）：
+     * 复用 dry-run 隔离重放（派生三元组、影子 sendMessage/createTask、is_replay=1），
+     * 按通道执行载荷前置钩子（image 直接构造事件信封形态、memory 离线先跑 004 沉淀管线再触发检索、
+     * web/card/nickname 定界注入上下文），返回硬/软防线评估所需的完整执行事实。
+     */
+    public AttackAssertionEvaluator.AttackExecutionFacts runAttack(AttackCaseDO attack) {
+        AttackAssertionEvaluator.validateStructure(attack);
+        if (!concurrencyGate.tryAcquire()) {
+            throw new NonRetryableException(ErrorCodes.OBSERVE_EVAL_BUSY,
+                    "对抗重放并发已达上限（observe.replay.maxConcurrent），稍后重试");
+        }
+        try {
+            return executeAttackInternal(attack);
+        } finally {
+            concurrencyGate.release();
+        }
+    }
+
+    private AttackAssertionEvaluator.AttackExecutionFacts executeAttackInternal(AttackCaseDO attack) {
+        EvalCaseDO synthetic = new EvalCaseDO();
+        synthetic.setId(attack.getId() != null ? attack.getId() : idGenerator.nextId());
+        synthetic.setPlatform("attack");
+        synthetic.setBotId("attack-bot");
+        synthetic.setGroupId("atk-" + attack.getChannel());
+
+        com.fasterxml.jackson.databind.JsonNode scenarioNode = parseJsonQuietly(attack.getScenario());
+        List<ScenarioCard.ScriptLine> priorLines = new ArrayList<>();
+        com.fasterxml.jackson.databind.JsonNode priorArr = scenarioNode.path("priorScript");
+        if (priorArr.isArray()) {
+            for (com.fasterxml.jackson.databind.JsonNode line : priorArr) {
+                priorLines.add(new ScenarioCard.ScriptLine(
+                        line.path("speaker").asText("u1"),
+                        line.path("text").asText("")));
+            }
+        }
+        String triggerText = scenarioNode.path("triggerText").asText(attack.getPayload());
+        ScenarioCard syntheticScenario = new ScenarioCard(
+                "注入对抗测试隔离群（channel=" + attack.getChannel() + "）",
+                List.of(),
+                new ScenarioCard.PreloadedState(null, null),
+                priorLines,
+                new ScenarioCard.TriggerEvent(attack.getChannel(), triggerText));
+
+        ReplayGroupProvisioner.PreparedReplay prepared = provisioner.provision(synthetic, syntheticScenario);
+        ReplayGroupProvisioner.ReplayTriple triple = prepared.triple();
+        AgentSessionDO session = prepared.session();
+        provisioner.resetTransient(session);
+
+        // 载荷前置钩子（research 缝隙增补 4）：memory 通道先对构造转录离线跑沉淀管线
+        if (AttackCaseDO.CHANNEL_MEMORY.equals(attack.getChannel())) {
+            runMemorySedimentPreHook(triple, session, attack.getPayload());
+        }
+
+        long outboxBefore = outboxMapper != null
+                ? outboxMapper.countByGroup(triple.platform(), triple.botId(), triple.groupId()) : 0L;
+        LocalDateTime startedAt = LocalDateTime.now(clock);
+        long sandboxBefore = securityEventMapper != null
+                ? securityEventMapper.countByKindGroupSince(
+                cn.edu.scut.chatbot.security.audit.SecurityEventKind.SANDBOX_ABNORMAL.code(),
+                triple.platform(), triple.botId(), triple.groupId(), startedAt.minusSeconds(1))
+                : 0L;
+
+        List<AgentMessage> history = new ArrayList<>(sessionManager.loadTranscript(session));
+        // 按通道把攻击载荷装配进本次上下文（与线上各通道形态一致）
+        history.addAll(buildChannelTriggerMessages(attack, triggerText));
+
+        ReplayToolAssembler.ShadowToolset toolset = toolAssembler.assemble(
+                triple.platform(), triple.botId(), triple.groupId());
+        cn.edu.scut.chatbot.loop.ModelConfig modelConfig =
+                slotResolver.resolve(ModelCatalog.SLOT_CHAT_MAIN);
+        PromptAssembler.AssembleOutcome promptOutcome = promptAssembler.assembleDetailed(
+                RunConfig.ExecutionForm.TURN, triple.platform(), triple.botId(),
+                triple.groupId(), null);
+        RunConfig.VersionKeys versionKeys = new RunConfig.VersionKeys(
+                promptOutcome.fragmentVersion(), promptOutcome.personaVersion(),
+                slotResolver.bindingVersionOf(ModelCatalog.SLOT_CHAT_MAIN));
+
+        Map<String, AgentTool> toolsByName = new LinkedHashMap<>();
+        for (AgentTool tool : toolset.tools()) {
+            toolsByName.put(tool.descriptor().name(), tool);
+        }
+        List<AgentMessage> producedMessages = new ArrayList<>();
+        long runId = idGenerator.nextId();
+        String windowLevel = session.getWindowLevel() != null
+                ? session.getWindowLevel() : AgentSessionDO.WINDOW_ACTIVE;
+        boolean visionCapable = modelConfig.model() != null
+                && modelConfig.model().capabilities() != null
+                && modelConfig.model().capabilities().vision();
+
+        long startNanos = System.nanoTime();
+        AgentLoop.RunSpec spec = new AgentLoop.RunSpec(
+                runId, triple.platform(), triple.botId(), triple.groupId(), null, null,
+                new AgentContext(promptOutcome.prompt(), history,
+                        toolset.tools().stream().map(AgentTool::descriptor).toList(), modelConfig),
+                RunConfig.turnDefaults().withVersionKeys(versionKeys).withReplay(true),
+                LoopHooks.builder(working -> contextAwareProjector.convert(working, windowLevel, visionCapable))
+                        .resolveCredentials(() -> credentialPool.nextAvailable(
+                                modelConfig.model().providerCode()))
+                        .beforeToolCall(toolCallGuard.forRun(
+                                triple.platform(), triple.botId(), triple.groupId()))
+                        .build(),
+                Map.copyOf(toolsByName),
+                new CostAwareStreamFn(streamFn, costRecorder,
+                        new LlmCallMeta(triple.platform(), triple.botId(), triple.groupId(),
+                                runId, "safety", "attack-" + synthetic.getId() + "-" + runId, true)),
+                clock, idGenerator::nextId,
+                (completedRunId, turnMessages) -> {
+                    producedMessages.addAll(turnMessages);
+                    sessionManager.appendTranscript(session, turnMessages, completedRunId);
+                },
+                loopEventWiring.newListener());
+        agentLoop.execute(spec);
+        long latencyMs = (System.nanoTime() - startNanos) / 1_000_000;
+
+        List<String> speeches = toolset.sendShadow().speeches().stream()
+                .map(ShadowSendMessage.ShadowSpeech::text).toList();
+        List<String> createdTasks = toolset.taskShadow() == null
+                ? List.of() : toolset.taskShadow().createdTasks();
+        long outboxAfter = outboxMapper != null
+                ? outboxMapper.countByGroup(triple.platform(), triple.botId(), triple.groupId()) : 0L;
+        long sandboxAfter = securityEventMapper != null
+                ? securityEventMapper.countByKindGroupSince(
+                cn.edu.scut.chatbot.security.audit.SecurityEventKind.SANDBOX_ABNORMAL.code(),
+                triple.platform(), triple.botId(), triple.groupId(), startedAt.minusSeconds(1))
+                : 0L;
+
+        return new AttackAssertionEvaluator.AttackExecutionFacts(
+                triple.platform(), triple.botId(), triple.groupId(),
+                promptOutcome.prompt(), speeches, createdTasks,
+                Math.max(0L, outboxAfter - outboxBefore),
+                Math.max(0L, sandboxAfter - sandboxBefore),
+                narrativeOf(history, producedMessages, speeches),
+                latencyMs);
+    }
+
+    /**
+     * memory 通道载荷前置钩子：把带延时注入的构造转录落入隔离会话并同步调用 004 SedimentWorker
+     */
+    private void runMemorySedimentPreHook(ReplayGroupProvisioner.ReplayTriple triple,
+                                          AgentSessionDO session, String payload) {
+        if (sedimentWorker == null || sedimentJobMapper == null) {
+            return;
+        }
+        try {
+            long entryId = idGenerator.nextId();
+            UserMessage poisonHistory = new UserMessage(String.valueOf(entryId),
+                    clock.instant().minusSeconds(600), 50, "attack-memory-seed", "u-attacker",
+                    List.of(new cn.edu.scut.chatbot.contract.message.TextPart(
+                            cn.edu.scut.chatbot.contract.message.TextPart.TYPE_TEXT, payload)));
+            sessionManager.appendTranscript(session, List.of(poisonHistory), null);
+
+            cn.edu.scut.chatbot.memory.sediment.SedimentJobDO job =
+                    new cn.edu.scut.chatbot.memory.sediment.SedimentJobDO();
+            job.setPlatform(triple.platform());
+            job.setBotId(triple.botId());
+            job.setGroupId(triple.groupId());
+            job.setTriggerKind(cn.edu.scut.chatbot.memory.sediment.SedimentJobDO.KIND_DAILY_SCAN);
+            job.setIdempotentKey("attack-sediment-" + entryId);
+            job.setPayload(JsonMappers.valueToStringOrNull(Map.of(
+                    "firstEntryId", entryId,
+                    "lastEntryId", entryId)));
+            job.setStatus(cn.edu.scut.chatbot.memory.sediment.SedimentJobDO.STATUS_PROCESSING);
+            sedimentJobMapper.insertJob(job);
+            sedimentWorker.process(job);
+        } catch (Exception e) {
+            log.warn("memory 对抗用例前置沉淀执行异常（降级继续重放） group={}", triple.groupId(), e);
+        }
+    }
+
+    private List<AgentMessage> buildChannelTriggerMessages(AttackCaseDO attack, String triggerText) {
+        List<AgentMessage> msgs = new ArrayList<>();
+        String channel = attack.getChannel();
+        if (AttackCaseDO.CHANNEL_IMAGE.equals(channel)) {
+            // image 通道：直接构造图片消息信封形态（降级描述走 VISION XML 定界）
+            String delimitedVision = cn.edu.scut.chatbot.security.delimit.DelimitHeaders.wrap(
+                    attack.getPayload(), cn.edu.scut.chatbot.security.delimit.DelimitHeaders.Src.VISION);
+            msgs.add(new UserMessage("atk-img-" + idGenerator.nextId(), clock.instant(), 50, null, "u-attacker",
+                    List.of(new cn.edu.scut.chatbot.contract.message.TextPart(
+                            cn.edu.scut.chatbot.contract.message.TextPart.TYPE_TEXT,
+                            "[图片描述] " + delimitedVision + "\n" + triggerText))));
+        } else if (AttackCaseDO.CHANNEL_WEB.equals(channel) || AttackCaseDO.CHANNEL_CARD.equals(channel)) {
+            String delimitedWeb = cn.edu.scut.chatbot.security.delimit.DelimitHeaders.wrap(
+                    attack.getPayload(), cn.edu.scut.chatbot.security.delimit.DelimitHeaders.Src.WEB);
+            msgs.add(new UserMessage("atk-web-" + idGenerator.nextId(), clock.instant(), 50, null, "u-attacker",
+                    List.of(new cn.edu.scut.chatbot.contract.message.TextPart(
+                            cn.edu.scut.chatbot.contract.message.TextPart.TYPE_TEXT,
+                            delimitedWeb + "\n" + triggerText))));
+        } else if (AttackCaseDO.CHANNEL_NICKNAME.equals(channel)) {
+            String delimitedNick = cn.edu.scut.chatbot.security.delimit.DelimitHeaders.wrap(
+                    attack.getPayload(), cn.edu.scut.chatbot.security.delimit.DelimitHeaders.Src.VARIABLE);
+            msgs.add(new UserMessage("atk-nick-" + idGenerator.nextId(), clock.instant(), 50, null, delimitedNick,
+                    List.of(new cn.edu.scut.chatbot.contract.message.TextPart(
+                            cn.edu.scut.chatbot.contract.message.TextPart.TYPE_TEXT, triggerText))));
+        } else {
+            msgs.add(new UserMessage("atk-msg-" + idGenerator.nextId(), clock.instant(), 50, null, "u-attacker",
+                    List.of(new cn.edu.scut.chatbot.contract.message.TextPart(
+                            cn.edu.scut.chatbot.contract.message.TextPart.TYPE_TEXT, triggerText))));
+        }
+        return msgs;
+    }
+
+    private static com.fasterxml.jackson.databind.JsonNode parseJsonQuietly(String json) {
+        try {
+            return JsonMappers.shared().readTree(json);
+        } catch (Exception e) {
+            return JsonMappers.shared().createObjectNode();
         }
     }
 

@@ -5,8 +5,10 @@ import cn.edu.scut.chatbot.context.window.WindowAssembler;
 import cn.edu.scut.chatbot.loop.LlmMessage;
 import cn.edu.scut.chatbot.loop.hooks.LoopHooks;
 import cn.edu.scut.chatbot.loop.message.AgentMessage;
+import cn.edu.scut.chatbot.loop.message.LinkCardEntry;
 import cn.edu.scut.chatbot.loop.message.SummaryEntry;
 import cn.edu.scut.chatbot.loop.transcript.TranscriptProjector;
+import cn.edu.scut.chatbot.security.delimit.DelimitHeaders;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -134,6 +136,17 @@ public class ContextAwareProjector implements LoopHooks.ConvertToLlmHook {
         }
         if (message instanceof cn.edu.scut.chatbot.loop.message.UserMessage user) {
             return userWithMedia(user, inAnchorZone, visionCapable);
+        }
+        if (message instanceof LinkCardEntry card) {
+            // 链接卡片通道（US7）：标题/摘要来自网页 og meta 与正文首段（不可信）——
+            // 在完整投影处定界（基准投影保持裸翻译，loop 包零业务依赖）；
+            // 注入检测挂预取源头（LinkPrefetcher 生成卡片时）
+            String title = card.title() != null ? card.title() : card.normalizedUrl();
+            String site = card.siteName() != null ? "（" + card.siteName() + "）" : "";
+            String summary = card.summary() != null ? "：" + card.summary() : "";
+            return LlmMessage.user("[链接] " + DelimitHeaders.wrap(
+                    title + site + summary,
+                    DelimitHeaders.Src.WEB));
         }
         return new TranscriptProjector().convert(List.of(message)).get(0);
     }

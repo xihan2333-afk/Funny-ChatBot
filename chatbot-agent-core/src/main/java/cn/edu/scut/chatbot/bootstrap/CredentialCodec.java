@@ -44,7 +44,21 @@ public class CredentialCodec {
 
     private static final String TRANSFORMATION = "AES/GCM/NoPadding";
 
+    /**
+     * 密文版本头魔数（T085 主密钥轮换版本标记）：[0x43, 0x56, versionByte | 12B IV | cipher + tag]。
+     * 既有无版本头密文（V1）保持完全兼容，解密时优先探测版本头并支持双密钥过渡兜底。
+     */
+    private static final byte HEADER_MAGIC_0 = 0x43; // 'C'
+    private static final byte HEADER_MAGIC_1 = 0x56; // 'V'
+    private static final int HEADER_BYTES = 3;
+    public static final byte VERSION_V2 = 0x02;
+
     private final SecretKeySpec key;
+
+    /**
+     * 过渡期旧主密钥（可空）：双密钥轮换期间新钥 GCM 认证失败即旧钥兜底，轮换完成撤除
+     */
+    private final SecretKeySpec previousKey;
 
     private final SecureRandom random = new SecureRandom();
 
@@ -52,11 +66,28 @@ public class CredentialCodec {
      * @param keyBytes 32 字节密钥（base64 解码后的原始字节）
      */
     public CredentialCodec(byte[] keyBytes) {
+        this(keyBytes, null);
+    }
+
+    /**
+     * 双密钥构造（T085 主密钥轮换过渡期）：加密固定用主密钥，解密先试主密钥、GCM 认证
+     * 失败后以旧密钥兜底（AES-GCM 认证标签使试错解密安全可靠）
+     */
+    public CredentialCodec(byte[] keyBytes, byte[] previousKeyBytes) {
         if (keyBytes == null || keyBytes.length != KEY_BYTES) {
             throw new IllegalArgumentException(
                     "凭证密钥必须是 " + KEY_BYTES + " 字节（AES-256），当前 " + (keyBytes == null ? 0 : keyBytes.length) + " 字节");
         }
         this.key = new SecretKeySpec(keyBytes, "AES");
+        if (previousKeyBytes != null && previousKeyBytes.length > 0) {
+            if (previousKeyBytes.length != KEY_BYTES) {
+                throw new IllegalArgumentException(
+                        "旧主密钥必须是 " + KEY_BYTES + " 字节（AES-256），当前 " + previousKeyBytes.length + " 字节");
+            }
+            this.previousKey = new SecretKeySpec(previousKeyBytes, "AES");
+        } else {
+            this.previousKey = null;
+        }
     }
 
     /**
@@ -65,6 +96,16 @@ public class CredentialCodec {
     public static CredentialCodec fromBase64Key(String base64Key) {
         byte[] keyBytes = Base64.getDecoder().decode(base64Key);
         return new CredentialCodec(keyBytes);
+    }
+
+    /**
+     * 双密钥 base64 构造（previousBase64Key 为空时退化为单密钥）
+     */
+    public static CredentialCodec fromBase64Keys(String primaryBase64Key, String previousBase64Key) {
+        byte[] primary = Base64.getDecoder().decode(primaryBase64Key);
+        byte[] previous = (previousBase64Key == null || previousBase64Key.isBlank())
+                ? null : Base64.getDecoder().decode(previousBase64Key.trim());
+        return new CredentialCodec(primary, previous);
     }
 
     /**
@@ -127,7 +168,36 @@ public class CredentialCodec {
     }
 
     /**
-     * 解密（字节数组入口——key_cipher 列直读形态）
+     * 带版本字节头的加密（主密钥轮换输出形态：[magic 2B | version 1B | 12B IV | cipher + tag]）
+     */
+    public byte[] encryptVersionedToBytes(String plaintext, byte version) {
+        byte[] raw = encryptToBytes(plaintext);
+        byte[] versioned = new byte[HEADER_BYTES + raw.length];
+        versioned[0] = HEADER_MAGIC_0;
+        versioned[1] = HEADER_MAGIC_1;
+        versioned[2] = version;
+        System.arraycopy(raw, 0, versioned, HEADER_BYTES, raw.length);
+        return versioned;
+    }
+
+    /**
+     * 探测给定密文是否能用本编解码器主密钥通过 GCM 认证解密（主密钥轮换幂等判定——
+     * 认证标签防伪解密，仅当确实用该密钥加密才返回 true）
+     */
+    public boolean canDecryptBytes(byte[] packed) {
+        if (packed == null || packed.length <= IV_BYTES) {
+            return false;
+        }
+        try {
+            decryptWithKey(packed, key);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 解密（字节数组入口——key_cipher 列直读形态；支持版本头 + 双密钥过渡探测）
      */
     public String decryptFromBytes(byte[] packed) {
         try {
@@ -146,10 +216,38 @@ public class CredentialCodec {
             throw new NonRetryableException(ToolErrorCodes.CREDENTIAL_DECRYPT_FAILED,
                     "凭证密文长度不合法（不足 IV + tag），可能数据损坏");
         }
-        GCMParameterSpec spec = new GCMParameterSpec(TAG_BITS, packed, 0, IV_BYTES);
+        try {
+            return decryptWithKey(packed, key);
+        } catch (Exception primaryFailure) {
+            if (previousKey != null) {
+                return decryptWithKey(packed, previousKey);
+            }
+            throw primaryFailure;
+        }
+    }
+
+    private String decryptWithKey(byte[] packed, SecretKeySpec targetKey) throws Exception {
+        int offset = 0;
+        if (packed.length > HEADER_BYTES + IV_BYTES
+                && packed[0] == HEADER_MAGIC_0 && packed[1] == HEADER_MAGIC_1) {
+            offset = HEADER_BYTES;
+        }
+        try {
+            return doAesGcmDecrypt(packed, offset, targetKey);
+        } catch (Exception e) {
+            // 极低概率旧密文随机 IV 前两字节碰巧撞魔数：回退 offset=0 尝试兼容
+            if (offset == HEADER_BYTES) {
+                return doAesGcmDecrypt(packed, 0, targetKey);
+            }
+            throw e;
+        }
+    }
+
+    private String doAesGcmDecrypt(byte[] packed, int offset, SecretKeySpec targetKey) throws Exception {
+        GCMParameterSpec spec = new GCMParameterSpec(TAG_BITS, packed, offset, IV_BYTES);
         Cipher cipher = Cipher.getInstance(TRANSFORMATION);
-        cipher.init(Cipher.DECRYPT_MODE, key, spec);
-        byte[] plain = cipher.doFinal(packed, IV_BYTES, packed.length - IV_BYTES);
+        cipher.init(Cipher.DECRYPT_MODE, targetKey, spec);
+        byte[] plain = cipher.doFinal(packed, offset + IV_BYTES, packed.length - offset - IV_BYTES);
         return new String(plain, StandardCharsets.UTF_8);
     }
 }

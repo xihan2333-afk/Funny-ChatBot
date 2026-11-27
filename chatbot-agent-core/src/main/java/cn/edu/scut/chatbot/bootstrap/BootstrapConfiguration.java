@@ -2,7 +2,7 @@ package cn.edu.scut.chatbot.bootstrap;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnExpression;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableScheduling;
@@ -62,9 +62,10 @@ public class BootstrapConfiguration {
      * （密钥与密文分离存放；临时生成的密钥会在重启后解不开存量密文，绝不可取）。
      */
     @Bean
-    @ConditionalOnProperty("chatbot.credential.key")
+    @ConditionalOnExpression("!'${chatbot.credential.key:}'.isEmpty()")
     public CredentialCodec credentialCodec(
-            @Value("${chatbot.credential.key}") String base64Key) {
-        return CredentialCodec.fromBase64Key(base64Key);
+            @Value("${chatbot.credential.key}") String base64Key,
+            @Value("${chatbot.credential.previous-key:}") String previousBase64Key) {
+        return CredentialCodec.fromBase64Keys(base64Key, previousBase64Key);
     }
 }

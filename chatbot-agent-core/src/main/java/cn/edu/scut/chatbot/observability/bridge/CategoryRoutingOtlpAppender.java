@@ -28,12 +28,39 @@ public final class CategoryRoutingOtlpAppender extends OpenTelemetryAppender {
 
     @Override
     protected void append(ILoggingEvent event) {
-        MDC.put(LOG_CATEGORY_KEY, categoryOf(event.getLoggerName()));
+        String category = categoryOf(event.getLoggerName());
+        MDC.put(LOG_CATEGORY_KEY, category);
         try {
-            super.append(event);
+            // AsyncAppender 在调用线程冻结了 event.getMDCPropertyMap()，工作线程只改 MDC 不会反映到快照；
+            // 用轻量动态代理合并 log.category，确保同步与异步两条路径都带该属性。
+            ILoggingEvent enriched = enrichCategory(event, category);
+            super.append(enriched);
         } finally {
             MDC.remove(LOG_CATEGORY_KEY);
         }
+    }
+
+    private static ILoggingEvent enrichCategory(ILoggingEvent event, String category) {
+        java.util.Map<String, String> orig = event.getMDCPropertyMap();
+        if (orig != null && category.equals(orig.get(LOG_CATEGORY_KEY))) {
+            return event;
+        }
+        java.util.Map<String, String> merged = new java.util.HashMap<>();
+        if (orig != null) {
+            merged.putAll(orig);
+        }
+        merged.put(LOG_CATEGORY_KEY, category);
+        java.util.Map<String, String> snapshot = java.util.Collections.unmodifiableMap(merged);
+        return (ILoggingEvent) java.lang.reflect.Proxy.newProxyInstance(
+                ILoggingEvent.class.getClassLoader(),
+                new Class<?>[]{ILoggingEvent.class},
+                (proxy, method, args) -> {
+                    String name = method.getName();
+                    if ("getMDCPropertyMap".equals(name) || "getMdc".equals(name)) {
+                        return snapshot;
+                    }
+                    return method.invoke(event, args);
+                });
     }
 
     /**

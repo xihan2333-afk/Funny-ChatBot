@@ -153,4 +153,14 @@
           AND run_id IS NOT NULL
     </delete>
 
+    <delete id="deleteUserTranscriptByGroup">
+        DELETE
+        FROM transcript_entry
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+          AND kind = 'user'
+          AND JSON_UNQUOTE(JSON_EXTRACT(payload, '$.senderUserId')) = #{userId}
+    </delete>
+
 </mapper>

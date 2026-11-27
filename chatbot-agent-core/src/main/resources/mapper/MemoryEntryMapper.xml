@@ -171,4 +171,14 @@
         <if test="groupId != null and groupId != ''">AND group_id = #{groupId}</if>
     </select>
 
+    <select id="selectIdsByGroupAndUser" resultType="long">
+        SELECT id
+        FROM memory_entry
+        WHERE platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+          AND user_id = #{userId}
+        ORDER BY id
+    </select>
+
 </mapper>

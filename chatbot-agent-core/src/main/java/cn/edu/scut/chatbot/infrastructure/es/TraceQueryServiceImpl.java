@@ -57,8 +57,12 @@ public class TraceQueryServiceImpl implements TraceQueryService {
         try {
             SearchResponse<JsonNode> resp = esClient.search(s -> s
                             .index(TRACES_INDEX)
-                            .query(q -> q.term(t -> t.field("traceId").value(traceId)))
-                            .sort(so -> so.field(f -> f.field("startTimeMillis").order(SortOrder.Asc)))
+                            .query(q -> q.bool(b -> b
+                                    .should(sh -> sh.term(t -> t.field("traceId").value(traceId)))
+                                    .should(sh -> sh.term(t -> t.field("TraceId").value(traceId)))
+                                    .minimumShouldMatch("1")))
+                            .sort(so -> so.field(f -> f.field("startTimeMillis").order(SortOrder.Asc).unmappedType(co.elastic.clients.elasticsearch._types.mapping.FieldType.Long)))
+                            .sort(so -> so.field(f -> f.field("@timestamp").order(SortOrder.Asc).unmappedType(co.elastic.clients.elasticsearch._types.mapping.FieldType.Date)))
                             .size(SPAN_LIST_LIMIT),
                     JsonNode.class);
             List<SpanView> spans = new ArrayList<>();
@@ -77,21 +81,33 @@ public class TraceQueryServiceImpl implements TraceQueryService {
             SearchResponse<Void> resp = esClient.search(s -> s
                             .index(TRACES_INDEX)
                             .query(q -> q.bool(b -> {
-                                termIfPresent(b, "attributes.chatbot.group.platform", filter.platform());
-                                termIfPresent(b, "attributes.chatbot.group.bot_id", filter.botId());
-                                termIfPresent(b, "attributes.chatbot.group_id", filter.groupId());
-                                termIfPresent(b, "attributes.chatbot.slot", filter.slotCode());
+                                termAnyIfPresent(b, filter.platform(), "attributes.chatbot.group.platform", "Attributes.chatbot.group.platform");
+                                termAnyIfPresent(b, filter.botId(), "attributes.chatbot.group.bot_id", "Attributes.chatbot.group.bot_id");
+                                termAnyIfPresent(b, filter.groupId(), "attributes.chatbot.group_id", "Attributes.chatbot.group_id");
+                                termAnyIfPresent(b, filter.slotCode(), "attributes.chatbot.slot", "Attributes.chatbot.slot");
                                 if (filter.fromMillis() != null || filter.toMillis() != null) {
-                                    b.filter(f -> f.range(r -> {
-                                        r.field("startTimeMillis");
-                                        if (filter.fromMillis() != null) {
-                                            r.gte(JsonData.of(filter.fromMillis()));
-                                        }
-                                        if (filter.toMillis() != null) {
-                                            r.lte(JsonData.of(filter.toMillis()));
-                                        }
-                                        return r;
-                                    }));
+                                    b.filter(f -> f.bool(rb -> rb
+                                            .should(sh -> sh.range(r -> {
+                                                r.field("startTimeMillis");
+                                                if (filter.fromMillis() != null) {
+                                                    r.gte(JsonData.of(filter.fromMillis()));
+                                                }
+                                                if (filter.toMillis() != null) {
+                                                    r.lte(JsonData.of(filter.toMillis()));
+                                                }
+                                                return r;
+                                            }))
+                                            .should(sh -> sh.range(r -> {
+                                                r.field("@timestamp");
+                                                if (filter.fromMillis() != null) {
+                                                    r.gte(JsonData.of(filter.fromMillis()));
+                                                }
+                                                if (filter.toMillis() != null) {
+                                                    r.lte(JsonData.of(filter.toMillis()));
+                                                }
+                                                return r;
+                                            }))
+                                            .minimumShouldMatch("1")));
                                 }
                                 return b;
                             }))
@@ -99,36 +115,85 @@ public class TraceQueryServiceImpl implements TraceQueryService {
                                     .terms(t -> t.field("traceId").size(TRACE_SEARCH_LIMIT)
                                             .order(List.of(new NamedValue<>("max_start", SortOrder.Desc))))
                                     .aggregations("max_start", sub -> sub.max(m -> m.field("startTimeMillis"))))
+                            .aggregations("by_trace_otel", a -> a
+                                    .terms(t -> t.field("TraceId").size(TRACE_SEARCH_LIMIT)
+                                            .order(List.of(new NamedValue<>("max_ts", SortOrder.Desc))))
+                                    .aggregations("max_ts", sub -> sub.max(m -> m.field("@timestamp"))))
                             .size(0),
                     Void.class);
-            List<String> traceIds = new ArrayList<>();
-            resp.aggregations().get("by_trace").sterms().buckets().array()
-                    .forEach(bucket -> traceIds.add(bucket.key().stringValue()));
-            return traceIds;
+            Map<String, Double> ranked = new LinkedHashMap<>();
+            if (resp.aggregations().containsKey("by_trace")) {
+                resp.aggregations().get("by_trace").sterms().buckets().array()
+                        .forEach(bucket -> ranked.put(bucket.key().stringValue(),
+                                bucket.aggregations().get("max_start").max().value()));
+            }
+            if (resp.aggregations().containsKey("by_trace_otel")) {
+                resp.aggregations().get("by_trace_otel").sterms().buckets().array()
+                        .forEach(bucket -> ranked.merge(bucket.key().stringValue(),
+                                bucket.aggregations().get("max_ts").max().value(), Math::max));
+            }
+            return ranked.entrySet().stream()
+                    .sorted(Map.Entry.<String, Double>comparingByValue().reversed())
+                    .limit(TRACE_SEARCH_LIMIT)
+                    .map(Map.Entry::getKey)
+                    .toList();
         } catch (IOException | RuntimeException e) {
             throw unavailable("searchTraces", e);
         }
     }
 
-    private void termIfPresent(co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery.Builder b,
-                               String field, String value) {
+    private void termAnyIfPresent(co.elastic.clients.elasticsearch._types.query_dsl.BoolQuery.Builder b,
+                                  String value, String... fields) {
         if (value != null && !value.isBlank()) {
-            b.filter(f -> f.term(t -> t.field(field).value(value)));
+            b.filter(f -> f.bool(sb -> {
+                for (String field : fields) {
+                    sb.should(sh -> sh.term(t -> t.field(field).value(value)));
+                }
+                return sb.minimumShouldMatch("1");
+            }));
         }
     }
 
     private SpanView toSpanView(JsonNode doc) {
         Map<String, Object> attributes = new LinkedHashMap<>();
-        doc.path("attributes").fields().forEachRemaining(entry ->
+        JsonNode attrNode = !doc.path("attributes").isMissingNode() && doc.path("attributes").size() > 0
+                ? doc.path("attributes")
+                : doc.path("Attributes");
+        attrNode.fields().forEachRemaining(entry ->
                 attributes.put(entry.getKey(), entry.getValue().isValueNode()
                         ? entry.getValue().asText() : entry.getValue().toString()));
+        long startMs = doc.has("startTimeMillis")
+                ? doc.path("startTimeMillis").asLong(0)
+                : parseIsoMillis(doc.path("@timestamp").asText(null));
+        long durationMs = doc.has("durationMillis")
+                ? doc.path("durationMillis").asLong(0)
+                : doc.path("Duration").asLong(0) / 1000L;
+        String parentSpan = textOr(doc, "parentSpanId", "ParentSpanId");
         return new SpanView(
-                doc.path("name").asText(null),
-                doc.path("spanId").asText(null),
-                doc.path("parentSpanId").isTextual() ? doc.path("parentSpanId").asText() : null,
-                doc.path("startTimeMillis").asLong(0),
-                doc.path("durationMillis").asLong(0),
+                textOr(doc, "name", "Name"),
+                textOr(doc, "spanId", "SpanId"),
+                parentSpan,
+                startMs,
+                durationMs,
                 attributes);
+    }
+
+    private static String textOr(JsonNode doc, String primary, String fallback) {
+        if (doc.path(primary).isTextual()) {
+            return doc.path(primary).asText();
+        }
+        return doc.path(fallback).isTextual() ? doc.path(fallback).asText() : null;
+    }
+
+    private static long parseIsoMillis(String iso) {
+        if (iso == null || iso.isBlank()) {
+            return 0L;
+        }
+        try {
+            return java.time.Instant.parse(iso).toEpochMilli();
+        } catch (Exception ignored) {
+            return 0L;
+        }
     }
 
     private RetryableException unavailable(String operation, Exception cause) {

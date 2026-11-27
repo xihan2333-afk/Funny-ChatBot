@@ -35,10 +35,19 @@ public class SafeFetcher {
 
     private final Duration timeout;
 
+    /**
+     * 可选域名黑名单校验回调（US8：覆盖初始 URL 与每一跳 302 重定向目标，防跳转绕过）
+     */
+    private volatile java.util.function.Predicate<String> domainBlocker;
+
     public SafeFetcher(HttpClient httpClient, long maxResponseBytes, Duration timeout) {
         this.httpClient = httpClient;
         this.maxResponseBytes = maxResponseBytes;
         this.timeout = timeout;
+    }
+
+    public void setDomainBlocker(java.util.function.Predicate<String> domainBlocker) {
+        this.domainBlocker = domainBlocker;
     }
 
     /**
@@ -70,10 +79,33 @@ public class SafeFetcher {
                 throw new NonRetryableException(ToolErrorCodes.FETCH_FAILED,
                         "上游返回非成功状态 " + status);
             }
+            validateContentType(response);
             return readBody(response);
         }
         throw new NonRetryableException(ToolErrorCodes.FETCH_BLOCKED,
                 "重定向超过 " + MAX_REDIRECTS + " 跳上限");
+    }
+
+    /**
+     * Content-Type 校验（T077 六项防护之一）：只接受文本 / JSON / XML / XHTML 响应
+     * （缺失头容忍以兼容极简页面，二进制可执行或压缩包明确拦截）
+     */
+    private void validateContentType(HttpResponse<java.io.InputStream> response) {
+        String raw = response.headers().firstValue("Content-Type").orElse(null);
+        if (raw == null || raw.isBlank()) {
+            return;
+        }
+        String mediaType = raw.split(";")[0].trim().toLowerCase();
+        boolean allowed = mediaType.startsWith("text/")
+                || mediaType.equals("application/json")
+                || mediaType.equals("application/xml")
+                || mediaType.equals("application/xhtml+xml")
+                || mediaType.endsWith("+json")
+                || mediaType.endsWith("+xml");
+        if (!allowed) {
+            throw new NonRetryableException(ToolErrorCodes.FETCH_BLOCKED,
+                    "不支持的 Content-Type（" + mediaType + "）——仅允许文本与结构化文档响应");
+        }
     }
 
     /**
@@ -124,6 +156,12 @@ public class SafeFetcher {
         if (!"https".equalsIgnoreCase(uri.getScheme())) {
             throw new NonRetryableException(ToolErrorCodes.FETCH_BLOCKED,
                     "仅允许 https 出站（当前 scheme=" + uri.getScheme() + "）");
+        }
+        java.util.function.Predicate<String> blocker = this.domainBlocker;
+        if (blocker != null && uri.getHost() != null && blocker.test(uri.getHost())) {
+            throw new NonRetryableException(
+                    cn.edu.scut.chatbot.contract.error.ErrorCodes.SECURITY_DOMAIN_BLOCKED,
+                    "目标域名在抓取黑名单内（含重定向校验）：" + uri.getHost());
         }
         try {
             InetAddress[] addresses = InetAddress.getAllByName(uri.getHost());

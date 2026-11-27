@@ -47,6 +47,17 @@ public class PublishGateServiceImpl implements PublishGateService {
 
     private final Map<String, GateStatus> gates = new ConcurrentHashMap<>();
 
+    /**
+     * 对抗回归服务（US11 T099：安全面变更发布自动附带 attack_case 全量回测，
+     * 任一硬防线击穿直接判红牌）
+     */
+    private cn.edu.scut.chatbot.observability.eval.AttackBatchService attackBatchService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setAttackBatchService(cn.edu.scut.chatbot.observability.eval.AttackBatchService service) {
+        this.attackBatchService = service;
+    }
+
     public PublishGateServiceImpl(EvalCaseMapper caseMapper,
                                   ReplayService replayService,
                                   ContentVersioningService contentVersioningService,
@@ -66,10 +77,11 @@ public class PublishGateServiceImpl implements PublishGateService {
         gates.put(intention, running);
         Thread.ofVirtual().name("publish-gate-" + intention).start(() -> {
             try {
-                gates.put(intention, evaluate(mustPass));
+                gates.put(intention, evaluate(intention, mustPass));
             } catch (Exception e) {
                 // 门禁执行异常按红牌处理（宁可拦住不可放行）并留原因
-                log.error("发布门禁回测异常（intention={}）", intention, e);
+                log.error("发布门禁回测异常 errorCode=observe.publish_gate_failed traceId=n/a intention={}",
+                        intention, e);
                 gates.put(intention, new GateStatus("red", mustPass.isEmpty(), mustPass.size(),
                         0, List.of(new GateStatus.CaseVerdict(0, true, true, 0.0))));
             }
@@ -125,12 +137,10 @@ public class PublishGateServiceImpl implements PublishGateService {
     }
 
     /**
-     * 逐题 dry-run 回测 → 汇总判定（red 一票否决 → yellow 体验线 → green）
+     * 逐题 dry-run 回测 → 汇总判定（red 一票否决 → yellow 体验线 → green）；
+     * 若涉及安全面（能力协议提示词 / 安全闸 / Sandbox 配置）自动附加 attack_case 全量回归。
      */
-    private GateStatus evaluate(List<EvalCaseDO> mustPass) {
-        if (mustPass.isEmpty()) {
-            return new GateStatus("green", true, 0, 0, List.of());
-        }
+    private GateStatus evaluate(String intention, List<EvalCaseDO> mustPass) {
         List<GateStatus.CaseVerdict> verdicts = new ArrayList<>();
         int passedCases = 0;
         for (EvalCaseDO caze : mustPass) {
@@ -142,11 +152,38 @@ public class PublishGateServiceImpl implements PublishGateService {
                 passedCases++;
             }
         }
-        boolean anyRed = verdicts.stream().anyMatch(GateStatus.CaseVerdict::anyFailed);
+        boolean attackBreached = false;
+        if (attackBatchService != null && isSecuritySurface(intention)) {
+            cn.edu.scut.chatbot.observability.eval.AttackBatchService.AttackBatchReport attackReport =
+                    attackBatchService.runAllEnabled();
+            if (!attackReport.batchPassed()) {
+                attackBreached = true;
+                verdicts.add(new GateStatus.CaseVerdict(
+                        -attackReport.batchId(), true, true, 0.0));
+            }
+        }
+        if (mustPass.isEmpty() && !attackBreached) {
+            return new GateStatus("green", true, 0, 0, List.of());
+        }
+        boolean anyRed = attackBreached || verdicts.stream().anyMatch(GateStatus.CaseVerdict::anyFailed);
         String status = anyRed ? "red"
                 : verdicts.stream().anyMatch(v -> v.passRate() < YELLOW_PASS_RATE) ? "yellow"
                 : "green";
-        return new GateStatus(status, false, mustPass.size(), passedCases, List.copyOf(verdicts));
+        return new GateStatus(status, mustPass.isEmpty(), verdicts.size(), passedCases, List.copyOf(verdicts));
+    }
+
+    /**
+     * 安全面发布意图识别（T099：能力协议提示词 / 安全闸 / Sandbox 配置变更自动触发对抗回归）
+     */
+    static boolean isSecuritySurface(String intention) {
+        if (intention == null) {
+            return false;
+        }
+        String lower = intention.toLowerCase();
+        return lower.contains("tool_protocol")
+                || lower.contains("security")
+                || lower.contains("sandbox")
+                || lower.contains("safety");
     }
 
     private static void requireIntention(String intention) {

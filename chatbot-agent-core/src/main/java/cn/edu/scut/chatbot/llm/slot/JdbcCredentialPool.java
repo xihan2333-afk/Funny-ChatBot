@@ -44,6 +44,16 @@ public class JdbcCredentialPool implements CredentialPool {
     private final Clock clock;
 
     /**
+     * 安全事件统一入口（US10 T092：凭证 401 鉴权失败同步记 credentialInvalid 事件供告警探针消费）
+     */
+    private cn.edu.scut.chatbot.security.audit.SecurityEventRecorder securityEventRecorder;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setSecurityEventRecorder(cn.edu.scut.chatbot.security.audit.SecurityEventRecorder recorder) {
+        this.securityEventRecorder = recorder;
+    }
+
+    /**
      * 轮转指针（providerCode → 计数；过滤后序列上取模）
      */
     private final ConcurrentHashMap<String, AtomicInteger> rotation = new ConcurrentHashMap<>();
@@ -107,6 +117,22 @@ public class JdbcCredentialPool implements CredentialPool {
             log.info("凭证限流冷却 provider={} mask={} until={}s", providerCode, usedKeyMask, seconds);
         } else {
             credentialMapper.markDisabled(row.getId());
+            if (securityEventRecorder != null) {
+                try {
+                    io.opentelemetry.api.trace.SpanContext ctx =
+                            io.opentelemetry.api.trace.Span.current().getSpanContext();
+                    String traceId = (ctx != null && ctx.isValid()) ? ctx.getTraceId()
+                            : org.slf4j.MDC.get("traceId");
+                    securityEventRecorder.record(
+                            cn.edu.scut.chatbot.security.audit.SecurityEventKind.CREDENTIAL_INVALID,
+                            cn.edu.scut.chatbot.security.audit.SecurityDims.none(),
+                            java.util.Map.of("provider", providerCode, "keyMask",
+                                    usedKeyMask != null ? usedKeyMask : ""),
+                            traceId);
+                } catch (Exception e) {
+                    log.warn("credentialInvalid 审计事件写入失败 provider={}", providerCode, e);
+                }
+            }
             log.error("凭证鉴权失败停用告警 errorCode=llm.auth provider={} mask={} traceId=n/a "
                     + "（终态——补配新 key 而非复活）", providerCode, usedKeyMask);
         }

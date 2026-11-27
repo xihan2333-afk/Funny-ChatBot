@@ -60,13 +60,31 @@ public class LogQueryServiceImpl implements LogQueryService {
                                     }));
                                 }
                                 if (filter.groupId() != null && !filter.groupId().isBlank()) {
-                                    b.filter(f -> f.term(t -> t.field("group_id").value(filter.groupId())));
+                                    b.filter(f -> f.bool(sb -> sb
+                                            .should(sh -> sh.term(t -> t.field("group_id").value(filter.groupId())))
+                                            .should(sh -> sh.term(t -> t.field("labels.groupId").value(filter.groupId())))
+                                            .should(sh -> sh.term(t -> t.field("Attributes.groupId").value(filter.groupId())))
+                                            .should(sh -> sh.term(t -> t.field("logback.mdc.groupId").value(filter.groupId())))
+                                            .should(sh -> sh.term(t -> t.field("logback.mdc.groupId.keyword").value(filter.groupId())))
+                                            .minimumShouldMatch("1")));
                                 }
                                 if (filter.traceId() != null && !filter.traceId().isBlank()) {
-                                    b.filter(f -> f.term(t -> t.field("trace_id").value(filter.traceId())));
+                                    b.filter(f -> f.bool(sb -> sb
+                                            .should(sh -> sh.term(t -> t.field("trace_id").value(filter.traceId())))
+                                            .should(sh -> sh.term(t -> t.field("trace.id").value(filter.traceId())))
+                                            .minimumShouldMatch("1")));
                                 }
-                                if (filter.category() != null && !filter.category().isBlank()) {
-                                    b.filter(f -> f.term(t -> t.field("log.category").value(filter.category())));
+                                if ("agent".equals(filter.category())) {
+                                    b.filter(f -> f.bool(sb -> sb
+                                            .should(sh -> sh.term(t -> t.field("log.category").value("agent")))
+                                            .should(sh -> sh.term(t -> t.field("logback.mdc.log.category").value("agent")))
+                                            .should(sh -> sh.term(t -> t.field("logback.mdc.log.category.keyword").value("agent")))
+                                            .minimumShouldMatch("1")));
+                                } else if (filter.category() != null && !filter.category().isBlank()) {
+                                    // system 数据流还承接未附加 log.category 的接入层/框架日志：排除 agent 即可，兼容带与不带标签
+                                    b.mustNot(mn -> mn.term(t -> t.field("log.category").value("agent")));
+                                    b.mustNot(mn -> mn.term(t -> t.field("logback.mdc.log.category").value("agent")));
+                                    b.mustNot(mn -> mn.term(t -> t.field("logback.mdc.log.category.keyword").value("agent")));
                                 }
                                 if (filter.keyword() != null && !filter.keyword().isBlank()) {
                                     b.must(m -> m.match(ma -> ma.field("message").query(filter.keyword())));
@@ -96,16 +114,72 @@ public class LogQueryServiceImpl implements LogQueryService {
     }
 
     private LogEntry toEntry(JsonNode doc) {
+        JsonNode ts = doc.path("@timestamp");
+        long tsMillis = ts.isNumber() ? ts.asLong(0) : parseIsoMillis(ts.asText(null));
+        String level = textOrNull(doc, "severity");
+        if (level == null) {
+            level = textOrNull(doc.path("log"), "level");
+        }
+        String logger = textOrNull(doc, "logger");
+        if (logger == null) {
+            logger = textOrNull(doc.path("log"), "logger");
+        }
+        if (logger == null) {
+            logger = textOrNull(doc.path("Scope"), "name");
+        }
+        String traceId = textOrNull(doc, "trace_id");
+        if (traceId == null) {
+            traceId = textOrNull(doc.path("trace"), "id");
+        }
+        String spanId = textOrNull(doc, "span_id");
+        if (spanId == null) {
+            spanId = textOrNull(doc.path("span"), "id");
+        }
+        String groupId = textOrNull(doc, "group_id");
+        if (groupId == null) {
+            groupId = textOrNull(doc.path("labels"), "groupId");
+        }
+        if (groupId == null) {
+            groupId = textOrNull(doc.path("Attributes"), "groupId");
+        }
+        if (groupId == null) {
+            groupId = textOrNull(doc.path("logback").path("mdc"), "groupId");
+        }
+        String turnId = textOrNull(doc, "turn_id");
+        if (turnId == null) {
+            turnId = textOrNull(doc.path("labels"), "turnId");
+        }
+        if (turnId == null) {
+            turnId = textOrNull(doc.path("Attributes"), "turnId");
+        }
+        if (turnId == null) {
+            turnId = textOrNull(doc.path("logback").path("mdc"), "turnId");
+        }
+        String category = textOrNull(doc.path("log"), "category");
+        if (category == null) {
+            category = textOrNull(doc.path("logback").path("mdc").path("log"), "category");
+        }
         return new LogEntry(
-                doc.path("@timestamp").asLong(0),
-                doc.path("severity").asText(null),
-                doc.path("logger").asText(null),
+                tsMillis,
+                level,
+                logger,
                 doc.path("message").asText(null),
-                textOrNull(doc, "trace_id"),
-                textOrNull(doc, "span_id"),
-                textOrNull(doc, "group_id"),
-                textOrNull(doc, "turn_id"),
-                doc.path("log").path("category").asText(null));
+                traceId,
+                spanId,
+                groupId,
+                turnId,
+                category);
+    }
+
+    private static long parseIsoMillis(String iso) {
+        if (iso == null || iso.isBlank()) {
+            return 0L;
+        }
+        try {
+            return java.time.Instant.parse(iso).toEpochMilli();
+        } catch (Exception ignored) {
+            return 0L;
+        }
     }
 
     private String textOrNull(JsonNode doc, String field) {

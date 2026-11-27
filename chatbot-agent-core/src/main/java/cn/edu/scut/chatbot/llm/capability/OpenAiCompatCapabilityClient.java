@@ -58,6 +58,16 @@ public class OpenAiCompatCapabilityClient
 
     private final cn.edu.scut.chatbot.llm.slot.CostRecorder costRecorder;
 
+    /**
+     * 成本熔断硬闸（US8：image / voice 能力调用前校验，熔断中拒绝；chat_main 不查）
+     */
+    private cn.edu.scut.chatbot.security.gatepolicy.CostBreakerService costBreakerService;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setCostBreakerService(cn.edu.scut.chatbot.security.gatepolicy.CostBreakerService service) {
+        this.costBreakerService = service;
+    }
+
     public OpenAiCompatCapabilityClient(HttpClientHolder holder, SlotResolver slotResolver,
                                         CredentialPool credentialPool,
                                         SystemParamService systemParams,
@@ -119,6 +129,7 @@ public class OpenAiCompatCapabilityClient
 
     private ImageResult doGenerate(String slotCode, LlmCallMeta meta,
                                    String prompt, ImageOptions options, ModelRef[] resolvedOut) {
+        checkAbilityBreaker(slotCode, meta);
         ModelRef model = resolveSlot(slotCode);
         resolvedOut[0] = model;
         ObjectNode body = JsonMappers.shared().createObjectNode();
@@ -161,6 +172,7 @@ public class OpenAiCompatCapabilityClient
 
     private VoiceResult doSynthesize(String slotCode, LlmCallMeta meta,
                                      String text, VoiceOptions options, ModelRef[] resolvedOut) {
+        checkAbilityBreaker(slotCode, meta);
         ModelRef model = resolveSlot(slotCode);
         resolvedOut[0] = model;
         ObjectNode body = JsonMappers.shared().createObjectNode();
@@ -227,6 +239,23 @@ public class OpenAiCompatCapabilityClient
     }
 
     // ===== 共用底座 =====
+
+    private void checkAbilityBreaker(String slotCode, LlmCallMeta meta) {
+        if (costBreakerService == null) {
+            return;
+        }
+        try {
+            if (meta != null && meta.groupId() != null) {
+                costBreakerService.onAbilityCall(slotCode, meta.platform(), meta.botId(), meta.groupId());
+            } else {
+                costBreakerService.onAbilityCall(slotCode);
+            }
+        } catch (cn.edu.scut.chatbot.exception.CommandRejectedException rejected) {
+            throw new CapabilityException(
+                    cn.edu.scut.chatbot.contract.error.ErrorCodes.SECURITY_BREAKER_TRIPPED,
+                    rejected.getReason());
+        }
+    }
 
     private ModelRef resolveSlot(String slotCode) {
         try {

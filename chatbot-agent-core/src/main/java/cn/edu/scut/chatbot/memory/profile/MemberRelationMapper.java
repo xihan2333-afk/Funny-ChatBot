@@ -28,4 +28,12 @@ public interface MemberRelationMapper {
                                 @Param("groupId") String groupId,
                                 @Param("userIdA") String userIdA,
                                 @Param("userIdB") String userIdB);
+
+    /**
+     * 个体数据清除（US12）：删除指定群内涉及该用户的全部关系边（user_id_a 或 user_id_b 命中）
+     */
+    int deleteByGroupAndUser(@Param("platform") String platform,
+                             @Param("botId") String botId,
+                             @Param("groupId") String groupId,
+                             @Param("userId") String userId);
 }

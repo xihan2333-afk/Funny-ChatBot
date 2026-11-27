@@ -104,3 +104,10 @@ observe:
   es-url: ${CHATBOT_ES_URL:http://localhost:9200}
   es-username: ${CHATBOT_ES_USERNAME:}
   es-password: ${CHATBOT_ES_PASSWORD:}
+
+# ===== 管理平台认证与暴露面约束（US9 FR-019：第一版管理面不暴露公网，部署时应通过
+# server.address 绑定内网/回环或经反向代理访问；初始口令从 .env 注入，首登强制改密）=====
+chatbot:
+  admin:
+    init-username: ${CHATBOT_ADMIN_INIT_USERNAME:admin}
+    init-password: ${CHATBOT_ADMIN_INIT_PASSWORD:}

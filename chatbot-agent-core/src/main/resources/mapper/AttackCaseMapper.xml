@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.observability.eval.AttackCaseMapper">
+
+    <sql id="columns">
+        id
+        , channel, title, payload, scenario, expectation, assertion, enabled,
+        last_verdict AS lastVerdict, updated_at AS updatedAt
+    </sql>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO attack_case (channel, title, payload, scenario, expectation, assertion, enabled, last_verdict)
+        VALUES (#{channel}, #{title}, #{payload}, #{scenario}, #{expectation}, #{assertion},
+                COALESCE(#{enabled}, 1), #{lastVerdict})
+    </insert>
+
+    <select id="selectById" resultType="cn.edu.scut.chatbot.observability.eval.AttackCaseDO">
+        SELECT
+        <include refid="columns"/>
+        FROM attack_case
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectAll" resultType="cn.edu.scut.chatbot.observability.eval.AttackCaseDO">
+        SELECT
+        <include refid="columns"/>
+        FROM attack_case
+        ORDER BY id ASC
+    </select>
+
+    <select id="selectEnabled" resultType="cn.edu.scut.chatbot.observability.eval.AttackCaseDO">
+        SELECT
+        <include refid="columns"/>
+        FROM attack_case
+        WHERE enabled = 1
+        ORDER BY id ASC
+    </select>
+
+    <select id="selectByChannel" resultType="cn.edu.scut.chatbot.observability.eval.AttackCaseDO">
+        SELECT
+        <include refid="columns"/>
+        FROM attack_case
+        WHERE channel = #{channel}
+        ORDER BY id ASC
+    </select>
+
+    <update id="updateVerdict">
+        UPDATE attack_case
+        SET last_verdict = #{lastVerdict}
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateEnabled">
+        UPDATE attack_case
+        SET enabled = #{enabled}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE
+        FROM attack_case
+        WHERE id = #{id}
+    </delete>
+</mapper>

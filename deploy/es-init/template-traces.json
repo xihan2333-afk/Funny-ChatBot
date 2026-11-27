@@ -39,6 +39,28 @@
         "attributes": {
           "type": "object",
           "dynamic": true
+        },
+        "TraceId": {
+          "type": "keyword"
+        },
+        "SpanId": {
+          "type": "keyword"
+        },
+        "ParentSpanId": {
+          "type": "keyword"
+        },
+        "Name": {
+          "type": "keyword"
+        },
+        "Kind": {
+          "type": "keyword"
+        },
+        "Duration": {
+          "type": "long"
+        },
+        "Attributes": {
+          "type": "object",
+          "dynamic": true
         }
       }
     }

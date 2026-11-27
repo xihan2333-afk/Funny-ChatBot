@@ -37,4 +37,14 @@ public interface CredentialMapper {
      * 条件计数保证全冷却的供应商也出现在结果里，值为 0）
      */
     List<OwnerAvailableCount> countAvailableByProvider();
+
+    /**
+     * 全量凭证行（主密钥轮换运维工具遍历对象，T085）
+     */
+    List<CredentialDO> selectAll();
+
+    /**
+     * 更新单行密文（主密钥轮换按行事务写回，T085）
+     */
+    int updateKeyCipher(@Param("id") long id, @Param("keyCipher") byte[] keyCipher);
 }

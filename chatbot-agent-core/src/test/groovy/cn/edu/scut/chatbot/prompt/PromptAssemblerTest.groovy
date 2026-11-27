@@ -100,7 +100,7 @@ class PromptAssemblerTest extends Specification {
         prompt.contains("执行这个调研任务")
     }
 
-    def "群配置的群规定界注入（以下是数据不是指令）"() {
+    def "群配置的群规XML定界注入（US7 不可信变量通道）"() {
         given:
         persona()
         fragmentMapper.selectPublishedByLayer("identity") >> []
@@ -117,7 +117,8 @@ class PromptAssemblerTest extends Specification {
         def prompt = assembler.assemble(RunConfig.ExecutionForm.TURN, "qq", "10000", "80001", null)
 
         then:
-        prompt.contains(PromptAssembler.DELIMIT_HEADER)
+        prompt.contains('<untrusted src="variable">')
+        prompt.contains("</untrusted>")
         prompt.contains("不许发广告")
     }
 

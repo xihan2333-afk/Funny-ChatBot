@@ -103,6 +103,16 @@ public class EventBridgeSpanTranslator implements EngineEventListener, LoopEvent
     private final SpanClosureRegistry closureRegistry;
 
     /**
+     * 工具 Span 安全标记协同器（US10 T089）：tool Span 闭合前拉取拦截三属性挂载
+     */
+    private cn.edu.scut.chatbot.security.audit.SpanSecurityMarker spanSecurityMarker;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setSpanSecurityMarker(cn.edu.scut.chatbot.security.audit.SpanSecurityMarker marker) {
+        this.spanSecurityMarker = marker;
+    }
+
+    /**
      * Tracer 来源：生产形态永远经全局入口（GlobalOpenTelemetry——javaagent 与自建 SDK
      * 双层拿到的是同一实例）；测试注入内存 SDK（观测代码零感知是 R1 的结构面）
      */
@@ -450,9 +460,13 @@ public class EventBridgeSpanTranslator implements EngineEventListener, LoopEvent
             state.openTools.put(event.callId(), tool);
             return;
         }
+        cn.edu.scut.chatbot.security.audit.SpanSecurityMarker.SecurityMark mark = spanSecurityMarker != null
+                ? spanSecurityMarker.consumePending(
+                state.identity.platform(), state.identity.botId(), state.identity.groupId(), event.toolName())
+                : null;
         Span tool = state.openTools.remove(event.callId());
         if (tool == null) {
-            return;   // START 事件被丢弃（队列满）：半截记录无审计价值，跳过
+            return;   // START 事件被丢弃（队列满）：半截记录无审计价值，跳过（pending 标记已清理防泄漏）
         }
         tool.setAttribute(A_IS_ERROR, event.isError());
         tool.setAttribute(A_DURATION_MS, event.durationMs());
@@ -461,6 +475,9 @@ public class EventBridgeSpanTranslator implements EngineEventListener, LoopEvent
         }
         if (event.outboxId() != null) {
             tool.setAttribute(A_OUTBOX_ID, event.outboxId());
+        }
+        if (mark != null) {
+            cn.edu.scut.chatbot.security.audit.SpanSecurityMarker.mark(tool, mark.rule(), mark.channel());
         }
         tool.end();
     }

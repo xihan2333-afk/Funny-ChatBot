@@ -140,4 +140,50 @@ class PublishGateServiceImplTest {
         assertThatThrownBy(() -> gate.status("fragment.unknown"))
                 .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("trigger");
     }
+
+    @Test
+    void 安全面意图识别覆盖能力协议与安全闸与沙箱与safety四类前缀() {
+        assertThat(PublishGateServiceImpl.isSecuritySurface("tool_protocol.system")).isTrue();
+        assertThat(PublishGateServiceImpl.isSecuritySurface("SECURITY.gatepolicy")).isTrue();
+        assertThat(PublishGateServiceImpl.isSecuritySurface("sandbox.exec_policy")).isTrue();
+        assertThat(PublishGateServiceImpl.isSecuritySurface("prompt.safety_rules")).isTrue();
+
+        assertThat(PublishGateServiceImpl.isSecuritySurface("persona.daily_chat")).isFalse();
+        assertThat(PublishGateServiceImpl.isSecuritySurface("")).isFalse();
+        assertThat(PublishGateServiceImpl.isSecuritySurface(null)).isFalse();
+    }
+
+    @Test
+    void 安全面意图发布自动附对抗回归且击穿时即使必过子集为空仍判红牌() {
+        cn.edu.scut.chatbot.observability.eval.AttackBatchService attackBatch =
+                mock(cn.edu.scut.chatbot.observability.eval.AttackBatchService.class);
+        gate.setAttackBatchService(attackBatch);
+        when(caseMapper.selectReadyByTypes(any(), eq(200))).thenReturn(List.of());
+
+        // 普通意图：不触发对抗回归
+        gate.trigger("persona.daily_chat");
+        await().atMost(Duration.ofSeconds(5)).until(() ->
+                "green".equals(gate.status("persona.daily_chat").status()));
+        verify(attackBatch, never()).runAllEnabled();
+
+        // 安全面意图 + 对抗硬防线击穿：必过子集为空也不能假绿，必须判 red
+        when(attackBatch.runAllEnabled()).thenReturn(
+                new cn.edu.scut.chatbot.observability.eval.AttackBatchService.AttackBatchReport(
+                        7001L, false, 3, 2, 1, 0, 0.0, List.of()));
+        gate.trigger("tool_protocol.capability");
+        await().atMost(Duration.ofSeconds(5)).until(() ->
+                !"running".equals(gate.status("tool_protocol.capability").status()));
+        assertThat(gate.status("tool_protocol.capability").status()).isEqualTo("red");
+        verify(attackBatch, times(1)).runAllEnabled();
+
+        // 安全面意图 + 对抗全部通过：必过子集为空时才为 green 附空集提示
+        when(attackBatch.runAllEnabled()).thenReturn(
+                new cn.edu.scut.chatbot.observability.eval.AttackBatchService.AttackBatchReport(
+                        7002L, true, 3, 3, 0, 0, 0.0, List.of()));
+        gate.trigger("security.delimit_header");
+        await().atMost(Duration.ofSeconds(5)).until(() ->
+                !"running".equals(gate.status("security.delimit_header").status()));
+        assertThat(gate.status("security.delimit_header").status()).isEqualTo("green");
+        assertThat(gate.status("security.delimit_header").emptySubset()).isTrue();
+    }
 }

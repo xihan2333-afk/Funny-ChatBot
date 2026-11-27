@@ -8,8 +8,14 @@ import cn.edu.scut.chatbot.engine.intake.GroupMapper;
 import cn.edu.scut.chatbot.engine.intake.TriggerEventDO;
 import cn.edu.scut.chatbot.engine.intake.TriggerEventMapper;
 import cn.edu.scut.chatbot.exception.CommandRejectedException;
+import cn.edu.scut.chatbot.security.audit.SecurityDims;
+import cn.edu.scut.chatbot.security.audit.SecurityEventKind;
+import cn.edu.scut.chatbot.security.audit.SecurityEventRecorder;
+import cn.edu.scut.chatbot.security.gatepolicy.CostBreakerService;
+import cn.edu.scut.chatbot.security.gatepolicy.GatePolicyService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
@@ -69,9 +75,32 @@ public class TaskCoordinator {
      */
     private cn.edu.scut.chatbot.engine.events.EngineEventPublisher engineEvents;
 
-    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    @Autowired(required = false)
     void setEngineEventPublisher(cn.edu.scut.chatbot.engine.events.EngineEventPublisher publisher) {
         this.engineEvents = publisher;
+    }
+
+    /**
+     * 安全闸三件（US8：成本熔断、重任务频控与越权计数、安全事件统一记录）——
+     * setter 可选注入，兼容隔离单测构造。
+     */
+    private CostBreakerService costBreakerService;
+    private GatePolicyService gatePolicyService;
+    private SecurityEventRecorder securityEventRecorder;
+
+    @Autowired(required = false)
+    void setCostBreakerService(CostBreakerService service) {
+        this.costBreakerService = service;
+    }
+
+    @Autowired(required = false)
+    void setGatePolicyService(GatePolicyService service) {
+        this.gatePolicyService = service;
+    }
+
+    @Autowired(required = false)
+    void setSecurityEventRecorder(SecurityEventRecorder recorder) {
+        this.securityEventRecorder = recorder;
     }
 
     private void emitTaskTransitioned(TaskDO task, String from, String to) {
@@ -88,7 +117,34 @@ public class TaskCoordinator {
      * 再分派 workerLaunch。
      */
     public long createTask(TaskDO task) {
-        mandateGuard.assertCreatable(task);
+        try {
+            mandateGuard.assertCreatable(task);
+        } catch (CommandRejectedException rejected) {
+            recordMandateDenied(task, rejected.getReason());
+            throw rejected;
+        }
+        boolean isReplay = task.getPlatform() != null && task.getPlatform().startsWith("replay::");
+        if (!isReplay && TaskDO.KIND_HEAVY.equals(task.getTaskKind())) {
+            if (costBreakerService != null) {
+                costBreakerService.onHeavyTaskAttempt(task.getPlatform(), task.getBotId(), task.getGroupId(), task.getCreatorUserId());
+            }
+            if (gatePolicyService != null && !TaskDO.MANDATE_ADMIN.equals(task.getMandateSource())) {
+                var userQuota = gatePolicyService.checkHeavyTaskQuota(task.getPlatform(), task.getBotId(), task.getGroupId(),
+                        task.getCreatorUserId() != null ? task.getCreatorUserId() : "anonymous");
+                if (!userQuota.allowed()) {
+                    recordGateBlocked(task, "heavyTaskPerUserDaily", userQuota.used(), userQuota.limit());
+                    throw new CommandRejectedException(
+                            "你今日发起的重任务已达上限（" + userQuota.limit() + " 次），明天再试");
+                }
+                var groupQuota = gatePolicyService.checkHeavyTaskGroupQuota(
+                        task.getPlatform(), task.getBotId(), task.getGroupId());
+                if (!groupQuota.allowed()) {
+                    recordGateBlocked(task, "heavyTaskPerGroupDaily", groupQuota.used(), groupQuota.limit());
+                    throw new CommandRejectedException(
+                            "本群今日重任务已达上限（" + groupQuota.limit() + " 次），明天再试");
+                }
+            }
+        }
         long taskId = idGenerator.nextId();
         task.setId(taskId);
         task.setStatus(TaskStatus.SCHEDULED.name());
@@ -99,6 +155,57 @@ public class TaskCoordinator {
         scheduleWake(taskId);
         emitTaskTransitioned(task, null, TaskStatus.SCHEDULED.name());
         return taskId;
+    }
+
+    private void recordMandateDenied(TaskDO task, String reason) {
+        if (securityEventRecorder != null) {
+            try {
+                java.util.Map<String, Object> detail = new java.util.LinkedHashMap<>();
+                detail.put("category", task.getCategory());
+                detail.put("mandateSource", task.getMandateSource());
+                detail.put("taskKind", task.getTaskKind());
+                detail.put("reason", reason);
+                securityEventRecorder.record(
+                        cn.edu.scut.chatbot.security.audit.SecurityEventKind.MANDATE_DENIED,
+                        cn.edu.scut.chatbot.security.audit.SecurityDims.ofUser(
+                                task.getPlatform(), task.getBotId(), task.getGroupId(), task.getCreatorUserId()),
+                        detail, currentTraceId());
+            } catch (Exception e) {
+                log.warn("mandateDenied 审计记录失败（不影响拒绝语义）", e);
+            }
+        }
+        if (gatePolicyService != null && task.getCreatorUserId() != null) {
+            try {
+                gatePolicyService.recordMandateDenied(task.getCreatorUserId());
+            } catch (Exception e) {
+                log.warn("越权小时桶计数失败 userId={}", task.getCreatorUserId(), e);
+            }
+        }
+    }
+
+    private void recordGateBlocked(TaskDO task, String rule, long used, long limit) {
+        if (securityEventRecorder == null) {
+            return;
+        }
+        try {
+            securityEventRecorder.record(
+                    SecurityEventKind.GATE_BLOCKED,
+                    SecurityDims.ofUser(
+                            task.getPlatform(), task.getBotId(), task.getGroupId(), task.getCreatorUserId()),
+                    java.util.Map.of("rule", rule, "used", used, "limit", limit),
+                    currentTraceId());
+        } catch (Exception e) {
+            log.warn("重任务频控审计记录失败 rule={}", rule, e);
+        }
+    }
+
+    private static String currentTraceId() {
+        io.opentelemetry.api.trace.SpanContext ctx =
+                io.opentelemetry.api.trace.Span.current().getSpanContext();
+        if (ctx != null && ctx.isValid()) {
+            return ctx.getTraceId();
+        }
+        return org.slf4j.MDC.get("traceId");
     }
 
     /**
@@ -186,23 +293,41 @@ public class TaskCoordinator {
     }
 
     /**
-     * 策略变更重验证：存量失格取消进审计（mandate 来源与允许清单比对）
+     * 策略变更重验证：存量失格（Mandate 失格或创建人进入黑名单）批量取消并记审计
+     * （T078 策略收紧存量取消审计：detail 附被取消 Task id 清单）
      */
     public int revalidateMandates(String platform, String botId, String groupId) {
-        int cancelled = 0;
+        java.util.List<Long> cancelledIds = new java.util.ArrayList<>();
         for (TaskDO task : taskMapper.selectByGroup(platform, botId, groupId)) {
             if (TaskStatus.valueOf(task.getStatus()).isTerminal()) {
                 continue;
             }
-            if (mandateGuard.isDisqualified(task)) {
+            boolean disqualified = mandateGuard.isDisqualified(task)
+                    || (gatePolicyService != null && task.getCreatorUserId() != null
+                    && gatePolicyService.isBlacklisted(platform, botId, groupId, task.getCreatorUserId()));
+            if (disqualified) {
                 taskMapper.advanceStatus(task.getId(), task.getStatus(), TaskStatus.CANCELLED.name());
                 emitTaskTransitioned(task, task.getStatus(), TaskStatus.CANCELLED.name());
+                workerSignalRegistry.cancelWorker(task.getId());
                 recordExecution(task.getId(), TaskExecutionLogDO.KIND_ROUND,
-                        "Mandate 重验证失格取消（策略变更）类别=" + task.getCategory());
-                cancelled++;
+                        "Mandate/黑名单重验证失格取消（策略收紧）类别=" + task.getCategory());
+                cancelledIds.add(task.getId());
             }
         }
-        return cancelled;
+        if (!cancelledIds.isEmpty() && securityEventRecorder != null) {
+            try {
+                securityEventRecorder.record(
+                        cn.edu.scut.chatbot.security.audit.SecurityEventKind.ADMIN_OPERATE,
+                        cn.edu.scut.chatbot.security.audit.SecurityDims.ofGroup(platform, botId, groupId),
+                        java.util.Map.of("action", "policyTightenCancelTasks",
+                                "cancelledTaskIds", cancelledIds,
+                                "cancelledCount", cancelledIds.size()),
+                        currentTraceId());
+            } catch (Exception e) {
+                log.warn("策略收紧存量取消审计写入失败 group={}", groupId, e);
+            }
+        }
+        return cancelledIds.size();
     }
 
     /**

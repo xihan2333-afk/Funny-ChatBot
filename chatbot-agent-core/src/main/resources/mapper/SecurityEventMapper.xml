@@ -15,6 +15,16 @@
           AND created_at &gt;= #{since}
     </select>
 
+    <select id="countByKindGroupSince" resultType="long">
+        SELECT COUNT(*)
+        FROM security_event
+        WHERE event_kind = #{eventKind}
+          AND platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+          AND created_at &gt;= #{since}
+    </select>
+
     <select id="countAllSince" resultType="long">
         SELECT COUNT(*)
         FROM security_event
