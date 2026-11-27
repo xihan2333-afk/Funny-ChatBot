@@ -226,9 +226,9 @@ public class SessionManager {
      * 入库统一兜底截断（源头截断第三道防线）：生成侧产出的超长文本在入库前经条目级截断——
      * 群友消息的宽松截断在写入侧已完成，此处只兜模型/工具产出的漏网超长。
      */
-    public void appendTranscript(AgentSessionDO session,
-                                 List<cn.edu.scut.chatbot.loop.message.AgentMessage> messages,
-                                 Long runId) {
+    public List<Long> appendTranscript(AgentSessionDO session,
+                                       List<cn.edu.scut.chatbot.loop.message.AgentMessage> messages,
+                                       Long runId) {
         List<TranscriptEntryDO> entries = new ArrayList<>(messages.size());
         for (cn.edu.scut.chatbot.loop.message.AgentMessage message : messages) {
             cn.edu.scut.chatbot.loop.message.AgentMessage bounded = boundEntry(message);
@@ -248,6 +248,12 @@ public class SessionManager {
         if (!entries.isEmpty()) {
             sessionMapper.insertTranscriptBatch(entries);
         }
+        // 返回落库条目主键（压缩器更新指针与沉淀工单锚定用；其它调用方可忽略）
+        List<Long> entryIds = new ArrayList<>(entries.size());
+        for (TranscriptEntryDO entry : entries) {
+            entryIds.add(entry.getId());
+        }
+        return entryIds;
     }
 
     /**
@@ -295,17 +301,37 @@ public class SessionManager {
      * 会话历史投影快照（Run 启动时组装 AgentContext.messages 用）
      */
     public List<cn.edu.scut.chatbot.loop.message.AgentMessage> loadTranscript(AgentSessionDO session) {
+        List<cn.edu.scut.chatbot.loop.message.AgentMessage> messages = new ArrayList<>();
+        for (TranscriptItem item : loadTranscriptWithEntryIds(session)) {
+            messages.add(item.message());
+        }
+        return messages;
+    }
+
+    /**
+     * 带转录条目主键的历史读取：压缩器取覆盖区间的真实 entry id 用（messageId 是
+     * 自由字符串——平台原始 id 或无符号雪花，与 transcript_entry.id 是两套号，
+     * 指针与区间锚定必须落 entry id）。
+     */
+    public List<TranscriptItem> loadTranscriptWithEntryIds(AgentSessionDO session) {
         List<TranscriptEntryDO> ordered = sessionMapper.selectOrdered(session.getId());
-        List<cn.edu.scut.chatbot.loop.message.AgentMessage> messages = new ArrayList<>(ordered.size());
+        List<TranscriptItem> items = new ArrayList<>(ordered.size());
         for (TranscriptEntryDO entry : ordered) {
             try {
-                messages.add(transcriptCodec.decode(entry.getPayload(), entry.getKind()));
+                items.add(new TranscriptItem(entry.getId(),
+                        transcriptCodec.decode(entry.getPayload(), entry.getKind())));
             } catch (Exception e) {
                 // 单条坏数据不拖垮整段历史（跳过并告警——历史全量只增不改，坏条目人工修）
                 log.warn("转录条目解码失败跳过 entryId={} kind={}", entry.getId(), entry.getKind(), e);
             }
         }
-        return messages;
+        return items;
+    }
+
+    /**
+     * 转录条目读取形态（主键 + 解码消息）
+     */
+    public record TranscriptItem(long entryId, cn.edu.scut.chatbot.loop.message.AgentMessage message) {
     }
 
     /**

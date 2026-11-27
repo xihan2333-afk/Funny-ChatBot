@@ -8,8 +8,11 @@ import cn.edu.scut.chatbot.contract.in.DeliveryReportPayload;
 import cn.edu.scut.chatbot.contract.in.GroupMessagePayload;
 import cn.edu.scut.chatbot.contract.message.AtPart;
 import cn.edu.scut.chatbot.contract.message.TextPart;
+import cn.edu.scut.chatbot.engine.events.EngineEvent;
+import cn.edu.scut.chatbot.engine.events.EngineEventPublisher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -75,6 +78,23 @@ public class IntakeService {
     }
 
     /**
+     * 引擎事件发布器（观测事件桥消费 IntakeRegistered / DecisionMade 等——同步发射只做通知）。
+     * setter 注入可选装配：未装配时零开销，测试构造不受扰。
+     */
+    private EngineEventPublisher engineEvents;
+
+    @Autowired(required = false)
+    void setEngineEventPublisher(EngineEventPublisher publisher) {
+        this.engineEvents = publisher;
+    }
+
+    private void emitEngineEvent(EngineEvent event) {
+        if (engineEvents != null) {
+            engineEvents.publish(event);
+        }
+    }
+
+    /**
      * 入流分发主入口（InboundDispatch 调用；已在群串行泵内）。
      * 回执分流结算；BotEvent 走生命周期联动；普通事件走登记 + 群发现。
      */
@@ -128,6 +148,7 @@ public class IntakeService {
         trigger.setSourceRef(envelope.rawRef() != null
                 ? envelope.rawRef().rawEventId() : null);
         trigger.setDecision(TriggerEventDO.DECISION_PENDING);
+        trigger.setTraceContext(envelope.traceContext());
         trigger.setOccurredAt(LocalDateTime.ofInstant(
                 java.time.Instant.ofEpochMilli(envelope.occurredAt() != null
                         ? envelope.occurredAt() : clock.millis()), clock.getZone()));
@@ -141,6 +162,9 @@ public class IntakeService {
         // 存储全量纪律：登记成功即写转录（群友消息/群事件进历史，可见性由投影逐次决定）。
         // 幂等同源：重复投递在触发器层已被拒，不会重复写条目
         transcriptIntakeWriter.writeInbound(envelope);
+        emitEngineEvent(new cn.edu.scut.chatbot.engine.events.EngineEvent.IntakeRegistered(
+                platform, botId, groupId, envelope.dedupKey(), envelope.type(),
+                envelope.traceContext()));
     }
 
     /**

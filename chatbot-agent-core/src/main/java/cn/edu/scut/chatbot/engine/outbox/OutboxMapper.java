@@ -53,4 +53,11 @@ public interface OutboxMapper {
      * 卡死的 dispatching 行重置（XADD 前崩溃的窗口——超时重投，宁可重试不永久滞留）
      */
     int resetStaleDispatching(@Param("deadline") java.time.LocalDateTime deadline);
+
+    /**
+     * 统计指定群三元组下的 outbox 行数（对抗测试 noDeliveredViolation 硬防线断言，T097）
+     */
+    long countByGroup(@Param("platform") String platform,
+                      @Param("botId") String botId,
+                      @Param("groupId") String groupId);
 }

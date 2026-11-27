@@ -44,6 +44,9 @@ class ContextManagementIT extends AbstractIntegrationTest {
     @Autowired
     private IdGenerator idGenerator;
 
+    @Autowired
+    private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
     @Test
     void 超线转录压缩_新摘要落库指针更新_原文保留() {
         groupMapper.upsertDiscovered("qq", "10000", TEST_GROUP, null);
@@ -65,9 +68,13 @@ class ContextManagementIT extends AbstractIntegrationTest {
         var summary = compactor.compactIfNeeded(session, 30000, 8000);
 
         assertThat(summary).isNotNull();
-        // 指针更新
+        // 指针更新：指向摘要条目的落库主键（与 messageId 两套号，经 DB 查证对上号）
         AgentSessionDO reloaded = sessionManager.getOrCreateSession("qq", "10000", TEST_GROUP);
-        assertThat(reloaded.getSummaryEntryId()).isEqualTo(Long.parseLong(summary.messageId()));
+        Long summaryEntryIdInDb = jdbcTemplate.queryForObject(
+                "SELECT id FROM transcript_entry WHERE session_id = ? AND kind = 'summary' ORDER BY id DESC LIMIT 1",
+                Long.class, reloaded.getId());
+        assertThat(summaryEntryIdInDb).isNotNull();
+        assertThat(reloaded.getSummaryEntryId()).isEqualTo(summaryEntryIdInDb);
         // 转录含摘要条目且原文保留（历史全量只增不改）
         var transcript = sessionManager.loadTranscript(reloaded);
         assertThat(transcript).anySatisfy(message ->
@@ -77,7 +84,7 @@ class ContextManagementIT extends AbstractIntegrationTest {
         // 004 R1：压缩成功必有工单行（同事务落 sediment_job，幂等键 = summaryEntryId）
         var jobs = jobMapper.selectByGroup("qq", "10000", TEST_GROUP);
         assertThat(jobs).anySatisfy(job ->
-                assertThat(job.getIdempotentKey()).isEqualTo(summary.messageId()));
+                assertThat(job.getIdempotentKey()).isEqualTo(String.valueOf(summaryEntryIdInDb)));
     }
 
     @Test

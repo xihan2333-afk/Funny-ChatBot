@@ -3246,24 +3246,29 @@ funny-chatbot（parent，统一管版本与插件）
 
 ### 3.1.2 依赖矩阵与版本约束
 
-| 依赖                                              | 版本                     | 引入位置                    | 用途                                  |
-|-------------------------------------------------|------------------------|-------------------------|-------------------------------------|
-| spring-boot-starter-parent                      | 2.7.18                 | parent                  | 版本基线，托管下面所有"Boot 托管"项               |
-| spring-boot-starter-web                         | Boot 托管                | 三个 Java 服务              | 内嵌 Tomcat：管理 API、接入层与沙箱的内嵌接口        |
-| spring-boot-starter-actuator                    | Boot 托管                | 三个 Java 服务              | 健康检查端点（compose 依赖它判断 healthy）       |
-| spring-boot-starter-validation                  | Boot 托管                | agent-core              | 管理接口参数校验                            |
-| spring-boot-starter-data-redis                  | Boot 托管（Lettuce 6.1.x） | access-layer、agent-core | Stream 消费与群状态 Hash                  |
-| mybatis-spring-boot-starter                     | 2.3.2                  | 三个 Java 服务              | MySQL 访问（原生 MyBatis，禁 MyBatis-Plus） |
-| mysql-connector-j                               | 8.0.33+                | 三个 Java 服务              | JDBC 驱动                             |
-| flyway-core + flyway-mysql                      | Boot 托管（8.5.x）         | 仅 agent-core            | 表结构迁移，只前向（2.8.8 已定）                 |
-| elasticsearch-java                              | 8.11.x（手动指定）           | agent-core              | 观测查询聚合与索引初始化                        |
-| opentelemetry-api                               | 1.34.x（手动指定）           | 三个 Java 服务              | 事件桥取 Tracer；SDK 由 javaagent 提供      |
-| opentelemetry-logback-appender-1.0              | 同上                     | 三个 Java 服务              | 日志经 OTLP 异步外发                       |
-| docker-java + docker-java-transport-httpclient5 | 3.3.x                  | 仅 sandbox-executor      | 容器创建与生命周期控制                         |
-| spring-security-crypto                          | Boot 托管                | agent-core              | 仅用 BCrypt（管理平台口令），不引完整 security     |
-| lombok                                          | 1.18.30+               | 三个 Java 服务              | 仅 DO / DTO 的样板代码缩减；对外契约一律 record    |
-| jackson-databind                                | Boot 托管                | 全部                      | JSON 列、信封序列化、配置载荷                   |
-| archunit-junit5                                 | 1.2.x（test）            | agent-core              | 包依赖规约测试（3.1.3）                      |
+| 依赖                                              | 版本                     | 引入位置                         | 用途                                                                                                           |
+|-------------------------------------------------|------------------------|------------------------------|--------------------------------------------------------------------------------------------------------------|
+| spring-boot-starter-parent                      | 2.7.18                 | parent                       | 版本基线，托管下面所有"Boot 托管"项                                                                                        |
+| spring-boot-starter-web                         | Boot 托管                | 三个 Java 服务                   | 内嵌 Tomcat：管理 API、接入层与沙箱的内嵌接口                                                                                 |
+| spring-boot-starter-actuator                    | Boot 托管                | 三个 Java 服务                   | 健康检查端点（compose 依赖它判断 healthy）                                                                                |
+| spring-boot-starter-validation                  | Boot 托管                | agent-core                   | 管理接口参数校验                                                                                                     |
+| spring-boot-starter-data-redis                  | Boot 托管（Lettuce 6.1.x） | access-layer、agent-core      | Stream 消费与群状态 Hash                                                                                           |
+| mybatis-spring-boot-starter                     | 2.3.2                  | 三个 Java 服务                   | MySQL 访问（原生 MyBatis，禁 MyBatis-Plus）                                                                          |
+| mysql-connector-j                               | 8.0.33+                | 三个 Java 服务                   | JDBC 驱动                                                                                                      |
+| flyway-core + flyway-mysql                      | Boot 托管（8.5.x）         | 仅 agent-core                 | 表结构迁移，只前向（2.8.8 已定）                                                                                          |
+| elasticsearch-java                              | 8.11.4（手动指定）           | agent-core                   | 观测查询聚合与索引初始化；与 deploy 侧 elasticsearch 服务端镜像版本一致（8.11.4）                                                      |
+| opentelemetry-api                               | 1.34.1（手动指定）           | 三个 Java 服务                   | 事件桥取 Tracer；javaagent 在场时复用其安装的 SDK，缺席时由自建 SDK 兜底（2.5.2 双层分工）                                                |
+| opentelemetry-sdk                               | 1.34.1（手动指定）           | agent-core                   | javaagent 缺席时（本地开发 / 集成测试）事件桥自建 SDK 兜底：BatchSpanProcessor + OTLP 导出，可配置关闭为 noop                              |
+| opentelemetry-exporter-otlp                     | 1.34.1（手动指定）           | agent-core                   | 自建 SDK 兜底的 OTLP gRPC 导出器（sdk 行"OTLP 导出"的具体构件；与 api / sdk 同线）                                                 |
+| opentelemetry-javaagent（运行期 jar）                | 1.34.1                 | agent-core / access-layer 镜像 | 运行期 `-javaagent` 挂载，自动增强 Tomcat / JDBC / Lettuce 等并向 logback 注入链路标识；jar 打进镜像（2.8.2）；与编译期 API 1.34.1 对齐（升级同步） |
+| opentelemetry-logback-appender-1.0              | 1.33.6-alpha           | 三个 Java 服务                   | 日志经 OTLP 异步外发                                                                                                |
+| elasticsearch（deploy 镜像）                        | 8.11.4                 | deploy/docker-compose.yml    | 观测数据存储（traces / logs 数据流）；与 elasticsearch-java 客户端 8.11.4 小版本对齐                                              |
+| otel-collector（contrib，deploy 镜像）               | 0.98.0                 | deploy/docker-compose.yml    | OTLP 接收、按 log.category 路由、批量写入 ES（2.5.5）                                                                     |
+| docker-java + docker-java-transport-httpclient5 | 3.3.x                  | 仅 sandbox-executor           | 容器创建与生命周期控制                                                                                                  |
+| spring-security-crypto                          | Boot 托管                | agent-core                   | 仅用 BCrypt（管理平台口令），不引完整 security                                                                              |
+| lombok                                          | 1.18.30+               | 三个 Java 服务                   | 仅 DO / DTO 的样板代码缩减；对外契约一律 record                                                                             |
+| jackson-databind                                | Boot 托管                | 全部                           | JSON 列、信封序列化、配置载荷                                                                                            |
+| archunit-junit5                                 | 1.2.x（test）            | agent-core                   | 包依赖规约测试（3.1.3）                                                                                               |
 
 **Java 21 与 Spring Boot 2.7.18 的组合是本章第一位的版本声明**。Spring Boot 2.7 的官方测试矩阵只覆盖到 Java 17/19，没有 Java 21；但底层 Spring Framework 自 5.3.31（Boot 2.7.18 恰好托管这个版本）起官方声明支持 JDK 21 运行，方案选定的虚拟线程是 JDK 能力而非 Spring 能力（执行器全部手动创建，3.4.1 展开），Tomcat 9.0.8x、Lettuce 6.1、MyBatis 3.5 在 Java 21 上均无已知问题。结论：**组合可用，属"非官方测试矩阵"的已知约束**，随版本声明一并写入 README。三条配套纪律：
 

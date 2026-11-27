@@ -33,17 +33,26 @@ public final class SpeechOutcomeJudger {
      */
     public static SpeechOutcome judge(List<AgentMessage> newMessages) {
         List<String> outboxIds = new ArrayList<>();
+        boolean terminatedSend = false;
         for (AgentMessage message : newMessages) {
             if (message instanceof ToolResultMessage toolResult
-                    && SEND_MESSAGE_TOOL.equals(toolResult.toolName())
-                    && !toolResult.isError()
-                    && toolResult.attachments() != null
-                    && toolResult.attachments().get("outboxId") != null) {
-                outboxIds.add(String.valueOf(toolResult.attachments().get("outboxId")));
+                    && SEND_MESSAGE_TOOL.equals(toolResult.toolName())) {
+                if (toolResult.terminate()) {
+                    terminatedSend = true;
+                }
+                if (!toolResult.isError()
+                        && toolResult.attachments() != null
+                        && toolResult.attachments().get("outboxId") != null) {
+                    outboxIds.add(String.valueOf(toolResult.attachments().get("outboxId")));
+                }
             }
         }
         if (!outboxIds.isEmpty()) {
             return new SpeechOutcome(outboxIds, null, false, null);
+        }
+        // 安全拦截终止纪律（US8 硬防线）：sendMessage 已被快筛终止，禁止回退裸文本兜底绕过
+        if (terminatedSend) {
+            return new SpeechOutcome(List.of(), null, true, "安全快筛拦截终止（禁止裸文本兜底）");
         }
         // 裸文本兜底：最后一条非残缺、有文本的 assistant 消息
         for (int i = newMessages.size() - 1; i >= 0; i--) {

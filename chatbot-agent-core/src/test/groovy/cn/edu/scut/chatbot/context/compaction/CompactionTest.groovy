@@ -158,7 +158,12 @@ class CompactionTest extends Specification {
                 new SeededIdGenerator(), new FixedClock(), { event -> events << event } as org.springframework.context.ApplicationEventPublisher,
                 new DeterministicSummaryGenerator(), noopJobWriter(), noopGroupState(), noopTopicLifecycle())
         def transcript = (1..40).collect { i -> user(String.valueOf(900000L + i), i) }
-        sessionManager.loadTranscript(_ as AgentSessionDO) >> transcript
+        // 带条目主键的读取形态：entryId 与 messageId 数字刻意不同——断言锚定的是
+        // 落库主键（两套号不混用），appendTranscript 返回摘要条目的落库主键
+        def items = transcript.withIndex().collect { msg, i ->
+            new SessionManager.TranscriptItem(500_000L + i, msg)
+        }
+        sessionManager.loadTranscriptWithEntryIds(_ as AgentSessionDO) >> items
         def session = new AgentSessionDO()
         session.setId(555L)
         session.setPlatform("qq")
@@ -173,14 +178,14 @@ class CompactionTest extends Specification {
         summary.summaryText().contains("讨论参与者")
         1 * sessionManager.appendTranscript(_ as AgentSessionDO, { List batch ->
             batch.size() == 1 && batch[0] instanceof SummaryEntry
-        }, null)
+        }, null) >> [777_777L]
 
-        and: "指针指向新摘要（值经捕获闭包带出，联动断言用普通条件——interaction 参数不能引用 when 局部）"
+        and: "指针指向新摘要的落库主键（值经捕获闭包带出，联动断言用普通条件——interaction 参数不能引用 when 局部）"
         1 * sessionMapper.updateSummaryPointer(555L, { Long pointer ->
             pointerValues << pointer
             true
         })
-        pointerValues == [Long.parseLong(summary.messageId())]
+        pointerValues == [777_777L]
 
         and: "窗口水位降档 quiet 落库（投影读会话档位——多群各持各档）"
         1 * sessionMapper.updateWindowLevel(555L, AgentSessionDO.WINDOW_QUIET)

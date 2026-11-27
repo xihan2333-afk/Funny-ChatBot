@@ -12,7 +12,7 @@ class BoundedEventListenerTest extends Specification {
     def "队列满则丢弃并计数 绝不阻塞调用方"() {
         given: "不启后台消费（队列只涨——不依赖消费时序的确定性形态）"
         def quietListener = new BoundedEventListener(false)
-        def event = LoopEvent.RunEvent.started(1L, RunConfig.ExecutionForm.TURN)
+        def event = LoopEvent.RunEvent.started(1L, RunConfig.ExecutionForm.TURN, null, null, false)
 
         when: "灌满队列容量 4096 再多灌 100 条"
         (1..4096).each { quietListener.onEvent(event) }
@@ -29,7 +29,7 @@ class BoundedEventListenerTest extends Specification {
         listener.addBackgroundConsumer({ e -> received << e })
 
         when: "入队 3 个事件等后台消化"
-        (1..3).each { listener.onEvent(LoopEvent.RunEvent.started(it as long, RunConfig.ExecutionForm.TURN)) }
+        (1..3).each { listener.onEvent(LoopEvent.RunEvent.started(it as long, RunConfig.ExecutionForm.TURN, null, null, false)) }
 
         then:
         org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5))
@@ -42,7 +42,7 @@ class BoundedEventListenerTest extends Specification {
         listener.addBackgroundConsumer({ e -> received << e })
 
         when: "入队 5 个事件后立即关闭（关闭与消费并发——残余事件也要尽量送达）"
-        (1..5).each { listener.onEvent(LoopEvent.RunEvent.started(it as long, RunConfig.ExecutionForm.TURN)) }
+        (1..5).each { listener.onEvent(LoopEvent.RunEvent.started(it as long, RunConfig.ExecutionForm.TURN, null, null, false)) }
         listener.close()
 
         then: "关闭转入非阻塞排空模式：残余送完才退出"
@@ -55,7 +55,7 @@ class BoundedEventListenerTest extends Specification {
         given:
         def received = []
         listener.addBackgroundConsumer({ e -> received << e })
-        (1..5).each { listener.onEvent(LoopEvent.RunEvent.started(it as long, RunConfig.ExecutionForm.TURN)) }
+        (1..5).each { listener.onEvent(LoopEvent.RunEvent.started(it as long, RunConfig.ExecutionForm.TURN, null, null, false)) }
         listener.close()
         org.awaitility.Awaitility.await().atMost(java.time.Duration.ofSeconds(5))
                 .until({ listener.deliveredCount() == 5L })
@@ -65,7 +65,7 @@ class BoundedEventListenerTest extends Specification {
                 .until({ listener.deliveredCount() == 5L })
 
         when: "停机后再入队 3 个事件"
-        (1..3).each { listener.onEvent(LoopEvent.RunEvent.started(it as long, RunConfig.ExecutionForm.TURN)) }
+        (1..3).each { listener.onEvent(LoopEvent.RunEvent.started(it as long, RunConfig.ExecutionForm.TURN, null, null, false)) }
 
         then: "不被消费（已交付的保持 5 条）"
         received.size() == 5

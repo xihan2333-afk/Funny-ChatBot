@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.security.gatepolicy.BlacklistMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO blacklist (scope, platform, bot_id, group_id, user_id, reason)
+        VALUES (#{scope}, #{platform}, #{botId}, #{groupId}, #{userId}, #{reason})
+    </insert>
+
+    <select id="selectHit" resultType="cn.edu.scut.chatbot.security.gatepolicy.BlacklistDO">
+        SELECT id,
+               scope,
+               platform,
+               bot_id     AS botId,
+               group_id   AS groupId,
+               user_id    AS userId,
+               reason,
+               created_at AS createdAt
+        FROM blacklist
+        WHERE user_id = #{userId}
+          AND (scope = 'global'
+            OR (scope = 'group' AND platform = #{platform} AND bot_id = #{botId}
+                AND group_id = #{groupId}))
+            LIMIT 1
+    </select>
+
+    <select id="selectAll" resultType="cn.edu.scut.chatbot.security.gatepolicy.BlacklistDO">
+        SELECT id,
+               scope,
+               platform,
+               bot_id     AS botId,
+               group_id   AS groupId,
+               user_id    AS userId,
+               reason,
+               created_at AS createdAt
+        FROM blacklist
+        ORDER BY id DESC
+    </select>
+
+    <delete id="deleteById">
+        DELETE
+        FROM blacklist
+        WHERE id = #{id}
+    </delete>
+</mapper>

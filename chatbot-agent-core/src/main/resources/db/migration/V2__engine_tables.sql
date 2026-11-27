@@ -28,6 +28,7 @@ CREATE TABLE trigger_event
     turn_id         BIGINT UNSIGNED NULL COMMENT 'accept 后归属的 Turn',
     occurred_at     DATETIME(3)  NOT NULL COMMENT '事件时间（话题新鲜度判定输入）',
     decided_at      DATETIME(3)  NULL COMMENT '决策时间',
+    trace_context VARCHAR(128) NULL COMMENT 'W3C traceparent（SC-001 跨进程接续留痕）',
     created_at      DATETIME(3)  NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
     PRIMARY KEY (id),
     UNIQUE KEY uk_dedup (platform, bot_id, dedup_key),

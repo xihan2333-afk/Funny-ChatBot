@@ -10,8 +10,10 @@ import cn.edu.scut.chatbot.engine.intake.TriggerEventDO;
 import cn.edu.scut.chatbot.engine.intake.TriggerEventMapper;
 import cn.edu.scut.chatbot.memory.social.GroupStateService;
 import cn.edu.scut.chatbot.memory.social.ProactivePolicy;
+import cn.edu.scut.chatbot.security.gatepolicy.CostBreakerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -46,6 +48,16 @@ public class AutonomyScheduler {
     private final IdGenerator idGenerator;
     private final Clock clock;
 
+    /**
+     * 成本熔断硬闸（US8：熔断中跳过主动行为调度——不消耗额外成本，保留被动回应）
+     */
+    private CostBreakerService costBreakerService;
+
+    @Autowired(required = false)
+    void setCostBreakerService(CostBreakerService service) {
+        this.costBreakerService = service;
+    }
+
     public AutonomyScheduler(GroupMapper groupMapper,
                              TriggerEventMapper triggerEventMapper,
                              EffectsQueueMapper effectsQueueMapper,
@@ -68,9 +80,19 @@ public class AutonomyScheduler {
      */
     @Scheduled(fixedDelay = 60_000)
     public void scanGroupSilence() {
+        if (costBreakerService != null
+                && costBreakerService.isTripped(CostBreakerService.SCOPE_GLOBAL)) {
+            log.info("全局成本熔断中，跳过本次主动破冰扫描");
+            return;
+        }
         List<GroupDO> groups = groupMapper.selectAllInService();
         LocalDateTime now = LocalDateTime.now(clock);
         for (GroupDO group : groups) {
+            if (costBreakerService != null && costBreakerService.isTripped(
+                    CostBreakerService.groupScope(
+                            group.getPlatform(), group.getBotId(), group.getGroupId()))) {
+                continue;
+            }
             GroupKey key = new GroupKey(group.getPlatform(), group.getBotId(), group.getGroupId());
             ProactivePolicy.ProactiveParams params = proactivePolicy.effectiveParams(key);
             if (!params.isActiveHour(now)) {

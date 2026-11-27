@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.observability.eval.EvalBatchMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO eval_batch (batch_kind, scope, status)
+        VALUES (#{batchKind}, #{scope}, #{status})
+    </insert>
+
+    <update id="finish">
+        UPDATE eval_batch
+        SET status      = #{status},
+            report      = #{report},
+            cost_stat   = #{costStat},
+            finished_at = #{finishedAt}
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectById" resultType="cn.edu.scut.chatbot.observability.eval.EvalBatchDO">
+        SELECT id,
+               batch_kind  AS batchKind,
+               scope,
+               status,
+               report,
+               cost_stat   AS costStat,
+               created_at  AS createdAt,
+               finished_at AS finishedAt
+        FROM eval_batch
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectPage" resultType="cn.edu.scut.chatbot.observability.eval.EvalBatchDO">
+        SELECT id,
+        batch_kind AS batchKind,
+        scope,
+        status,
+        report,
+        cost_stat AS costStat,
+        created_at AS createdAt,
+        finished_at AS finishedAt
+        FROM eval_batch
+        <where>
+            <if test="batchKind != null and batchKind != ''">
+                batch_kind = #{batchKind}
+            </if>
+        </where>
+        ORDER BY id DESC
+        LIMIT #{size} OFFSET #{offset}
+    </select>
+
+</mapper>

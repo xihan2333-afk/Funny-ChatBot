@@ -1,0 +1,68 @@
+{
+  "index_patterns": [
+    "traces-*"
+  ],
+  "data_stream": {},
+  "priority": 200,
+  "template": {
+    "settings": {
+      "index.lifecycle.name": "chatbot-observe-14d",
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "traceId": {
+          "type": "keyword"
+        },
+        "spanId": {
+          "type": "keyword"
+        },
+        "parentSpanId": {
+          "type": "keyword"
+        },
+        "name": {
+          "type": "keyword"
+        },
+        "kind": {
+          "type": "keyword"
+        },
+        "startTimeMillis": {
+          "type": "long"
+        },
+        "durationMillis": {
+          "type": "long"
+        },
+        "attributes": {
+          "type": "object",
+          "dynamic": true
+        },
+        "TraceId": {
+          "type": "keyword"
+        },
+        "SpanId": {
+          "type": "keyword"
+        },
+        "ParentSpanId": {
+          "type": "keyword"
+        },
+        "Name": {
+          "type": "keyword"
+        },
+        "Kind": {
+          "type": "keyword"
+        },
+        "Duration": {
+          "type": "long"
+        },
+        "Attributes": {
+          "type": "object",
+          "dynamic": true
+        }
+      }
+    }
+  }
+}

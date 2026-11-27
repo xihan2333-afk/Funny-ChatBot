@@ -95,6 +95,17 @@ public class WorkerRunner {
     }
 
     /**
+     * 循环事件装配工厂（观测桥经它挂进每 Run 监听器——engine 不触达 observability）。
+     * setter 注入可选装配：未装配时退回裸监听器，测试构造不受扰。
+     */
+    private cn.edu.scut.chatbot.infrastructure.eventbus.LoopEventWiring loopEventWiring;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setLoopEventWiring(cn.edu.scut.chatbot.infrastructure.eventbus.LoopEventWiring wiring) {
+        this.loopEventWiring = wiring;
+    }
+
+    /**
      * 驱动 Worker Run（WorkerLauncher 在专属虚拟线程上调用；阻塞至 Run 终态）
      */
     public void run(long taskId, CancellationSignal signal) {
@@ -111,11 +122,14 @@ public class WorkerRunner {
         inputs.add(new SystemNote(Long.toUnsignedString(idGenerator.nextId()), clock.instant(),
                 50, "task-" + taskId, "taskSnapshot", "[任务快照] " + task.getSnapshot()));
 
-        // 一个 Run 一个监听器（Run 结束关闭——后台消费线程不泄漏）
-        BoundedEventListener eventListener = new BoundedEventListener();
+        // 一个 Run 一个监听器（Run 结束关闭——后台消费线程不泄漏；观测桥在场时经装配工厂
+        // 挂入全局消费方，engine 不触达 observability）
+        BoundedEventListener eventListener = loopEventWiring != null
+                ? loopEventWiring.newListener() : new BoundedEventListener();
         long runId = idGenerator.nextId();
         // Worker 形态提示词：能力协议（无发言协议）+ 任务执行提示词（T086 组装器挂接）
-        String workerPrompt = promptAssembler.assemble(RunConfig.ExecutionForm.WORKER,
+        cn.edu.scut.chatbot.prompt.PromptAssembler.AssembleOutcome workerPromptOutcome =
+                promptAssembler.assembleDetailed(RunConfig.ExecutionForm.WORKER,
                 task.getPlatform(), task.getBotId(), task.getGroupId(),
                 "完成下面给定的任务并产出结论。你可以使用提供的重活类工具（生图、语音、网页抓取、"
                         + "代码执行、读取完整输出；注意：你没有 sendMessage——你不能对群里说话，"
@@ -131,13 +145,16 @@ public class WorkerRunner {
             concludeFailed(taskId, "llm.config_missing:" + e.getMessage());
             return;
         }
-        AgentContext context = new AgentContext(workerPrompt.isBlank() ? WORKER_PROMPT : workerPrompt, inputs,
+        AgentContext context = new AgentContext(workerPromptOutcome.prompt().isBlank() ? WORKER_PROMPT : workerPromptOutcome.prompt(), inputs,
                 workerTools.stream().map(AgentTool::descriptor).toList(),
                 modelConfig);
 
         AgentLoop.RunSpec spec = new AgentLoop.RunSpec(
                 runId, task.getPlatform(), task.getBotId(), task.getGroupId(),
-                null, taskId, context, RunConfig.workerDefaults(),
+                null, taskId, context,
+                RunConfig.workerDefaults().withVersionKeys(new RunConfig.VersionKeys(
+                        workerPromptOutcome.fragmentVersion(), workerPromptOutcome.personaVersion(),
+                        slotResolver.bindingVersionOf(cn.edu.scut.chatbot.llm.slot.ModelCatalog.SLOT_TASK_WORKER))),
                 LoopHooks.builder(contextAwareProjector)
                         // Worker 形态现注：当前时间（任务快照已在启动上下文里，回执无群可投）
                         .transformContext(original -> new AgentContext(original.systemPrompt(),

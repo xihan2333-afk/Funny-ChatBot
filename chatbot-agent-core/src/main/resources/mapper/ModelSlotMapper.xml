@@ -9,7 +9,8 @@
                provider_code AS providerCode,
                model_id      AS modelId,
                gen_params    AS genParams,
-               enabled
+               enabled,
+               updated_at AS updatedAt
         FROM model_slot
     </select>
 

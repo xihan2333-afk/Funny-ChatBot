@@ -92,3 +92,22 @@ agent:
 qdrant:
   base-url: ${QDRANT_BASE_URL:http://localhost:6333}
   api-key: ${QDRANT_API_KEY:}
+
+# ===== 观测配置组（005：OTLP 导出与 ES 查询接入，值来自 .env 环境变量，改了要重启；
+# 运行期可热的开关与阈值在 system_param observe.* 域，不在这里）=====
+observe:
+  # OTLP gRPC 导出地址（javaagent 缺席时事件桥自建 SDK 指向 Collector，如 http://localhost:4317）
+  otlp-endpoint: ${CHATBOT_OTLP_ENDPOINT:}
+  # 观测导出总开关（false 时自建 SDK 降级 noop——本地开发无 Collector 时用）
+  otlp-enabled: ${CHATBOT_OTLP_ENABLED:true}
+  # 链路/日志/指标数据落点（管理查询经它转发，浏览器不直连）
+  es-url: ${CHATBOT_ES_URL:http://localhost:9200}
+  es-username: ${CHATBOT_ES_USERNAME:}
+  es-password: ${CHATBOT_ES_PASSWORD:}
+
+# ===== 管理平台认证与暴露面约束（US9 FR-019：第一版管理面不暴露公网，部署时应通过
+# server.address 绑定内网/回环或经反向代理访问；初始口令从 .env 注入，首登强制改密）=====
+chatbot:
+  admin:
+    init-username: ${CHATBOT_ADMIN_INIT_USERNAME:admin}
+    init-password: ${CHATBOT_ADMIN_INIT_PASSWORD:}

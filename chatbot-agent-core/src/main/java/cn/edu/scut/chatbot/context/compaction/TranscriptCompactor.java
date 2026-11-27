@@ -85,9 +85,13 @@ public class TranscriptCompactor {
         if (estimatedTokens <= triggerLineTokens) {
             return null;
         }
-        List<AgentMessage> transcript = sessionManager.loadTranscript(session);
-        if (transcript.size() <= RECENT_KEEP) {
+        List<SessionManager.TranscriptItem> items = sessionManager.loadTranscriptWithEntryIds(session);
+        if (items.size() <= RECENT_KEEP) {
             return null;   // 太短不值得压缩（空窗与近端全保留）
+        }
+        List<AgentMessage> transcript = new ArrayList<>(items.size());
+        for (SessionManager.TranscriptItem item : items) {
+            transcript.add(item.message());
         }
 
         // 切点：压缩区 = [0, cutIndex)，近端 [cutIndex, size) 保留
@@ -115,8 +119,11 @@ public class TranscriptCompactor {
                 Long.toUnsignedString(idGenerator.nextId()), clock.instant(), 50,
                 "compaction-" + session.getId(), summaryText,
                 "覆盖 " + compacting.size() + " 条（至 " + compacting.get(compacting.size() - 1).messageId() + "）");
-        sessionManager.appendTranscript(session, List.of(newSummary), null);
-        sessionMapper.updateSummaryPointer(session.getId(), Long.parseLong(newSummary.messageId()));
+        // 指针与区间锚定用落库条目主键——messageId 是自由字符串（平台 id 或雪花），
+        // 与 transcript_entry.id 是两套号
+        List<Long> appendedIds = sessionManager.appendTranscript(session, List.of(newSummary), null);
+        long summaryEntryId = appendedIds.get(0);
+        sessionMapper.updateSummaryPointer(session.getId(), summaryEntryId);
 
         // 水位降档：持续高水位压缩后降到 quiet 落库（投影读 session 档位——多群各持各档；
         // 活跃群回 active 由群状态互动驱动，2.4 演进）
@@ -126,10 +133,10 @@ public class TranscriptCompactor {
         // 摘要与工单要么都在要么都不在）
         sedimentJobWriter.submitOnCompaction(
                 new GroupKey(session.getPlatform(), session.getBotId(), session.getGroupId()),
-                Long.parseUnsignedLong(newSummary.messageId()),
+                summaryEntryId,
                 new SedimentJobWriter.TranscriptRange(
-                        Long.parseUnsignedLong(compacting.get(0).messageId()),
-                        Long.parseUnsignedLong(compacting.get(compacting.size() - 1).messageId())));
+                        items.get(0).entryId(),
+                        items.get(cutIndex - 1).entryId()));
 
         log.info("会话压缩完成 sessionId={} 压缩 {} 条为新摘要，窗口降档 quiet",
                 session.getId(), compacting.size());

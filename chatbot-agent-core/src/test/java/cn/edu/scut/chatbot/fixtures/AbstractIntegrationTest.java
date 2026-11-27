@@ -1,6 +1,10 @@
 package cn.edu.scut.chatbot.fixtures;
 
 import cn.edu.scut.chatbot.bootstrap.AgentCoreApplication;
+import io.opentelemetry.api.GlobalOpenTelemetry;
+import io.opentelemetry.sdk.OpenTelemetrySdk;
+import io.opentelemetry.sdk.trace.SdkTracerProvider;
+import io.opentelemetry.sdk.trace.export.SimpleSpanProcessor;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
@@ -56,10 +60,26 @@ public abstract class AbstractIntegrationTest {
     private static final GenericContainer<?> QDRANT = new GenericContainer<>(DockerImageName.parse("qdrant/qdrant"))
             .withExposedPorts(6333);
 
+    /**
+     * 内存 Span 采集面（research R19：IT 不起 Collector，翻译表与属性断言经
+     * SimpleSpanProcessor 同步收集——Span 名与属性的唯一可观测出口）
+     */
+    public static final InMemorySpanExporter SPANS = new InMemorySpanExporter();
+
     static {
         MYSQL.start();
         REDIS.start();
         QDRANT.start();
+        // 全局注册内存版 SDK（javaagent 缺席的 IT 形态，与接入层测试基线同款）：事件桥、
+        // OutboxWriter 拿到有效 SpanContext，ObservabilityBootstrap 探测到已在场即复用不重复自建
+        try {
+            SdkTracerProvider provider = SdkTracerProvider.builder()
+                    .addSpanProcessor(SimpleSpanProcessor.create(SPANS))
+                    .build();
+            GlobalOpenTelemetry.set(OpenTelemetrySdk.builder().setTracerProvider(provider).build());
+        } catch (IllegalStateException alreadyInstalled) {
+            // 重复装载形态：全局已注册即复用（javaagent 与测试基建同一条让路纪律）
+        }
     }
 
     /**

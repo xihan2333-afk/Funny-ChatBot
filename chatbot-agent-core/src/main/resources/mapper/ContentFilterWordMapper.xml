@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.security.gatepolicy.ContentFilterWordMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO content_filter_word (word, level, source, enabled)
+        VALUES (#{word}, #{level}, #{source}, #{enabled})
+    </insert>
+
+    <select id="selectEnabled" resultType="cn.edu.scut.chatbot.security.gatepolicy.ContentFilterWordDO">
+        SELECT id, word, level, source, enabled
+        FROM content_filter_word
+        WHERE enabled = 1
+        ORDER BY id
+    </select>
+
+    <select id="selectAll" resultType="cn.edu.scut.chatbot.security.gatepolicy.ContentFilterWordDO">
+        SELECT id, word, level, source, enabled
+        FROM content_filter_word
+        ORDER BY id DESC
+    </select>
+
+    <select id="selectByWord" resultType="cn.edu.scut.chatbot.security.gatepolicy.ContentFilterWordDO">
+        SELECT id, word, level, source, enabled
+        FROM content_filter_word
+        WHERE word = #{word} LIMIT 1
+    </select>
+
+    <update id="updateEnabled">
+        UPDATE content_filter_word
+        SET enabled = #{enabled}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="deleteById">
+        DELETE
+        FROM content_filter_word
+        WHERE id = #{id}
+    </delete>
+</mapper>

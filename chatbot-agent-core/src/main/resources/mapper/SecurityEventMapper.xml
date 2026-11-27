@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="cn.edu.scut.chatbot.security.audit.SecurityEventMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO security_event (event_kind, platform, bot_id, group_id, user_id, detail, trace_id)
+        VALUES (#{eventKind}, #{platform}, #{botId}, #{groupId}, #{userId}, #{detail}, #{traceId})
+    </insert>
+
+    <select id="countByKindSince" resultType="long">
+        SELECT COUNT(*)
+        FROM security_event
+        WHERE event_kind = #{eventKind}
+          AND created_at &gt;= #{since}
+    </select>
+
+    <select id="countByKindGroupSince" resultType="long">
+        SELECT COUNT(*)
+        FROM security_event
+        WHERE event_kind = #{eventKind}
+          AND platform = #{platform}
+          AND bot_id = #{botId}
+          AND group_id = #{groupId}
+          AND created_at &gt;= #{since}
+    </select>
+
+    <select id="countAllSince" resultType="long">
+        SELECT COUNT(*)
+        FROM security_event
+        WHERE created_at &gt;= #{since}
+    </select>
+
+    <select id="selectByTraceId" resultType="cn.edu.scut.chatbot.security.audit.SecurityEventDO">
+        SELECT id,
+               event_kind AS eventKind,
+               platform,
+               bot_id     AS botId,
+               group_id   AS groupId,
+               user_id    AS userId,
+               detail,
+               trace_id   AS traceId,
+               created_at AS createdAt
+        FROM security_event
+        WHERE trace_id = #{traceId}
+        ORDER BY id
+    </select>
+
+    <select id="countAllBetween" resultType="long">
+        SELECT COUNT(*)
+        FROM security_event
+        WHERE created_at &gt;= #{from}
+          AND created_at &lt; #{to}
+    </select>
+
+    <select id="selectTopMandateUser" resultType="cn.edu.scut.chatbot.security.audit.UserDeniedCount">
+        SELECT user_id AS userId, COUNT(*) AS count
+        FROM security_event
+        WHERE event_kind = 'mandateDenied'
+          AND user_id IS NOT NULL
+          AND created_at &gt;= #{since}
+        GROUP BY user_id
+        ORDER BY count DESC
+            LIMIT 1
+    </select>
+
+</mapper>

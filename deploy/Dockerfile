@@ -7,6 +7,12 @@
 FROM maven:3.9-eclipse-temurin-21 AS builder
 WORKDIR /build
 ARG MODULE=chatbot-access-layer
+ARG MAVEN_MIRROR_URL=https://maven.aliyun.com/repository/public
+
+RUN if [ -n "$MAVEN_MIRROR_URL" ]; then \
+      mkdir -p /root/.m2 && \
+      printf '<settings><mirrors><mirror><id>mirror</id><mirrorOf>*</mirrorOf><url>%s</url></mirror></mirrors></settings>\n' "$MAVEN_MIRROR_URL" > /root/.m2/settings.xml; \
+    fi
 
 # 先拷全部 pom 再拷源码：依赖下载层可被 Docker 缓存复用
 COPY pom.xml ./

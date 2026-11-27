@@ -81,7 +81,8 @@ public class ModelCatalog {
                             ModelCapabilities capabilities, ModelPrices prices, boolean enabled) {
     }
 
-    private record SlotRow(String providerCode, String modelId, String genParams, boolean enabled) {
+    private record SlotRow(String providerCode, String modelId, String genParams,
+                           boolean enabled, long bindingVersion) {
     }
 
     private record Snapshot(Map<String, ProviderRow> providers,
@@ -170,6 +171,23 @@ public class ModelCatalog {
     }
 
     /**
+     * 槽位绑定版本（观测侧版本三键之一）：绑定行 updated_at 的纪元毫秒——槽位表无
+     * 自增版本列，变更时间即版本；未绑定为 0
+     */
+    public long bindingVersionOf(String slotCode) {
+        SlotRow slot = snapshot.slots().get(slotCode);
+        return slot == null ? 0 : slot.bindingVersion();
+    }
+
+    /**
+     * DATETIME(3) → 纪元毫秒（连接时区 Asia/Shanghai——与 3.4.5 时间规约一致）
+     */
+    private static long epochMillis(java.time.LocalDateTime time) {
+        return time == null ? 0
+                : time.atZone(java.time.ZoneId.of("Asia/Shanghai")).toInstant().toEpochMilli();
+    }
+
+    /**
      * 模型单价（成本折算取数；未知模型返回 null——落账侧按单价缺失落 null 告警）
      */
     public ModelPrices pricesOf(String providerCode, String modelId) {
@@ -234,7 +252,8 @@ public class ModelCatalog {
         for (var row : slotMapper.selectAll()) {
             slots.put(row.getSlotCode(), new SlotRow(
                     row.getProviderCode(), row.getModelId(), row.getGenParams(),
-                    Boolean.TRUE.equals(row.getEnabled())));
+                    Boolean.TRUE.equals(row.getEnabled()),
+                    epochMillis(row.getUpdatedAt())));
         }
         return new Snapshot(Map.copyOf(providers), Map.copyOf(models), Map.copyOf(slots));
     }

@@ -5,8 +5,10 @@ import cn.edu.scut.chatbot.engine.session.AgentSessionDO;
 import cn.edu.scut.chatbot.engine.session.SessionManager;
 import cn.edu.scut.chatbot.infrastructure.safefetcher.SafeFetcher;
 import cn.edu.scut.chatbot.loop.message.LinkCardEntry;
+import cn.edu.scut.chatbot.security.gatepolicy.GatePolicyService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -71,6 +73,31 @@ public class LinkPrefetcher {
     private final IdGenerator idGenerator;
     private final Clock clock;
     private final int cardSummaryChars;
+
+    /**
+     * 定界 + 注入检测组合件（US7 链接卡片通道——卡片字段是结构化存储不定界，
+     * 检测挂在预取源头；定界发生在投影渲染处）。
+     * setter 注入：未装配（隔离单测上下文）时零检测。
+     */
+    private cn.edu.scut.chatbot.security.delimit.DelimitGuard delimitGuard;
+
+    @Autowired(required = false)
+    void setDelimitGuard(cn.edu.scut.chatbot.security.delimit.DelimitGuard guard) {
+        this.delimitGuard = guard;
+    }
+
+    /**
+     * 安全闸策略面（US8 域名黑名单——请求发出前判定，命中不进入 SafeFetcher 按既定降级跳过）
+     */
+    private GatePolicyService gatePolicyService;
+
+    @Autowired(required = false)
+    void setGatePolicyService(GatePolicyService service) {
+        this.gatePolicyService = service;
+        if (service != null) {
+            this.safeFetcher.setDomainBlocker(service::isDomainBlocked);
+        }
+    }
 
     public LinkPrefetcher(SessionManager sessionManager,
                           IdGenerator idGenerator,
@@ -161,12 +188,29 @@ public class LinkPrefetcher {
         if (cached != null) {
             return cached;   // 缓存命中：同一 URL 不重复预取（卡片条目复用——追加转录由调用方决定）
         }
+        if (gatePolicyService != null) {
+            try {
+                String host = URI.create(normalizedUrl).getHost();
+                if (gatePolicyService.isDomainBlocked(host)) {
+                    log.info("域名命中黑名单，按降级路径跳过预取 url={} host={}", normalizedUrl, host);
+                    return null;
+                }
+            } catch (Exception ignored) {
+                // 非法 URL 交由 SafeFetcher 拦截
+            }
+        }
         try {
             SafeFetcher.FetchedBody fetched = safeFetcher.fetch(normalizedUrl);
             String html = fetched.body();
             String title = firstGroup(OG_TITLE, html);
             String siteName = firstGroup(OG_SITE, html);
             String summary = firstParagraphOf(html, cardSummaryChars);
+            // 预取源头顺手做注入检测（卡片字段定界在投影渲染处——这里只留痕）
+            if (delimitGuard != null && title != null) {
+                delimitGuard.detect(
+                        title + (summary != null ? " " + summary : ""),
+                        cn.edu.scut.chatbot.security.delimit.DelimitHeaders.Src.WEB);
+            }
             bodyExcerpts.put(normalizedUrl, firstParagraphOf(html, SUMMARY_LEVEL_CHARS));
             LinkCardEntry card = new LinkCardEntry(
                     Long.toUnsignedString(idGenerator.nextId()), clock.instant(), 35,

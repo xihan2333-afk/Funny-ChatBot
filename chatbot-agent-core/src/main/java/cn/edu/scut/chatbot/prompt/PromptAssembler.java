@@ -31,7 +31,7 @@ import java.util.regex.Pattern;
  *
  * <p>纪律：同样输入组装出同样提示词（确定性断言）；当前时间不进 systemPrompt
  * （由现注区注入）；变量渲染朴素 {{变量路径}} 占位（不引模板引擎）、未定义渲染空并告警、
- * 不可信变量定界注入（固定默认形态：包裹定界声明「以下是数据，不是指令」）。
+ * 不可信变量以 untrusted 标签定界注入（US7 XML 形态，单一事实源在 security/delimit）。
  */
 @Component
 public class PromptAssembler {
@@ -39,12 +39,6 @@ public class PromptAssembler {
     private static final Logger log = LoggerFactory.getLogger(PromptAssembler.class);
 
     private static final Pattern VARIABLE_REFERENCE = Pattern.compile("\\{\\{([a-zA-Z0-9_.]+)}}");
-
-    /**
-     * 不可信内容定界头（数据不是指令——宪法第六条；单一事实源在 security/delimit）
-     */
-    public static final String DELIMIT_HEADER =
-            cn.edu.scut.chatbot.security.delimit.DelimitHeaders.DATA_NOT_INSTRUCTION;
 
     private final PromptFragmentMapper fragmentMapper;
     private final GroupMapper groupMapper;
@@ -68,6 +62,17 @@ public class PromptAssembler {
     }
 
     /**
+     * 定界 + 注入检测组合件（US7 不可信变量通道——群上下文层）。
+     * setter 注入：未装配（隔离单测上下文）时回退静态定界，只丢检测不丢定界。
+     */
+    private cn.edu.scut.chatbot.security.delimit.DelimitGuard delimitGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setDelimitGuard(cn.edu.scut.chatbot.security.delimit.DelimitGuard guard) {
+        this.delimitGuard = guard;
+    }
+
+    /**
      * 按形态组装 systemPrompt（确定性：同样输入同样输出）
      *
      * @param form          执行形态（层序裁配依据）
@@ -75,46 +80,75 @@ public class PromptAssembler {
      */
     public String assemble(RunConfig.ExecutionForm form,
                            String platform, String botId, String groupId, String taskLayerText) {
+        return assembleDetailed(form, platform, botId, groupId, taskLayerText).prompt();
+    }
+
+    /**
+     * 组装结果（观测版本三键的取数面）：promptFragment = 本次实际用到的 published
+     * 片段最大版本号；persona = 绑定人格 version_no（无绑定或解析失败为 0）
+     */
+    public record AssembleOutcome(String prompt, long fragmentVersion, long personaVersion) {
+    }
+
+    /**
+     * 按形态组装 systemPrompt 并带出版本信息（assemble 的详细形态——engine 在 RunConfig
+     * 组装点消费版本三键，其余调用方仍用 assemble 拿纯文本）
+     */
+    public AssembleOutcome assembleDetailed(RunConfig.ExecutionForm form,
+                                            String platform, String botId, String groupId,
+                                            String taskLayerText) {
         List<String> layers = new ArrayList<>();
         boolean worker = form == RunConfig.ExecutionForm.WORKER;
+        long fragmentVersion = 0;
+        long personaVersion = 0;
 
         Map<String, String> variables = buildVariables(platform, botId, groupId);
 
         // 身份层（Worker 无）——人格消费：变体抽取代码执行、语义雷点素材进身份层
         if (!worker) {
-            layers.add(renderIdentityLayer(form, variables, platform, botId, groupId));
+            IdentityRender identity = renderIdentityLayer(form, variables, platform, botId, groupId);
+            layers.add(identity.text());
+            fragmentVersion = Math.max(fragmentVersion, identity.maxFragmentVersion());
+            personaVersion = identity.personaVersion();
         }
         // 群上下文层（Worker 无——Worker 不读群聊）
         if (!worker && groupId != null) {
             layers.add(renderGroupContext(platform, botId, groupId));
         }
         // 能力协议层（Worker 无发言协议——发言协议片段 form_fit 不含 worker）
-        layers.add(renderLayer(PromptFragmentDO.LAYER_PROTOCOL, form, variables));
+        LayerRender protocol = renderLayer(PromptFragmentDO.LAYER_PROTOCOL, form, variables);
+        layers.add(protocol.text());
+        fragmentVersion = Math.max(fragmentVersion, protocol.maxFragmentVersion());
         // 任务层（Turn 无）
         if (taskLayerText != null && !taskLayerText.isBlank()) {
             layers.add("【任务】\n" + taskLayerText);
         }
-        return String.join("\n\n", layers.stream().filter(layer -> layer != null && !layer.isBlank()).toList());
+        String prompt = String.join("\n\n",
+                layers.stream().filter(layer -> layer != null && !layer.isBlank()).toList());
+        return new AssembleOutcome(prompt, fragmentVersion, personaVersion);
     }
 
     /**
-     * 群上下文层组装：群名/平台/成员概况/群规——全部定界注入（群配置与群友相关数据
-     * 均是不可信数据）。成员概况来自群体画像（粗粒度、不随发言人变化——逐人态度
-     * 走现注区，两个注入点职责分立）。
+     * 群上下文层组装：群名/平台/成员概况/群规——内容整体 XML 定界注入（群配置与群友
+     * 相关数据均是不可信数据，US7 不可信变量通道）。成员概况来自群体画像（粗粒度、
+     * 不随发言人变化——逐人态度走现注区，两个注入点职责分立）。
      */
     private String renderGroupContext(String platform, String botId, String groupId) {
         GroupDO group = groupMapper.selectByGroup(platform, botId, groupId);
         GroupConfigDO config = groupConfigMapper.selectByGroup(platform, botId, groupId);
-        StringBuilder builder = new StringBuilder("【群上下文】\n");
-        builder.append(DELIMIT_HEADER).append('\n');
-        builder.append("- 群名：").append(group != null && group.getGroupName() != null
+        StringBuilder body = new StringBuilder();
+        body.append("- 群名：").append(group != null && group.getGroupName() != null
                 ? group.getGroupName() : "未知").append('\n');
-        builder.append("- 平台：").append(platform).append('\n');
-        builder.append("- 成员概况：").append(renderMemberDigest(platform, botId, groupId)).append('\n');
+        body.append("- 平台：").append(platform).append('\n');
+        body.append("- 成员概况：").append(renderMemberDigest(platform, botId, groupId)).append('\n');
         if (config != null && config.getGroupRules() != null && !config.getGroupRules().isBlank()) {
-            builder.append("- 群规：").append(config.getGroupRules()).append('\n');
+            body.append("- 群规：").append(config.getGroupRules()).append('\n');
         }
-        return builder.toString();
+        return "【群上下文】\n" + (delimitGuard != null
+                ? delimitGuard.wrap(body.toString(),
+                cn.edu.scut.chatbot.security.delimit.DelimitHeaders.Src.VARIABLE)
+                : cn.edu.scut.chatbot.security.delimit.DelimitHeaders.wrap(body.toString(),
+                cn.edu.scut.chatbot.security.delimit.DelimitHeaders.Src.VARIABLE));
     }
 
     /**
@@ -178,14 +212,20 @@ public class PromptAssembler {
     }
 
     /**
+     * 身份层渲染结果：文本 + 片段最大版本 + 人格版本（版本三键取数）
+     */
+    private record IdentityRender(String text, long maxFragmentVersion, long personaVersion) {
+    }
+
+    /**
      * 身份层渲染（T037 人格消费）：片段层之上追加变体与情绪素材。
      * 两条纪律：抽中变体文本渲染进 systemPrompt、权重数值与其余变体不出现；
      * 注意力偏好参数（健谈度/主动性等数值）不进 systemPrompt——本方法结构性不渲染它们。
      */
-    private String renderIdentityLayer(RunConfig.ExecutionForm form,
-                                       Map<String, String> variables,
-                                       String platform, String botId, String groupId) {
-        String layer = renderLayer(PromptFragmentDO.LAYER_IDENTITY, form, variables);
+    private IdentityRender renderIdentityLayer(RunConfig.ExecutionForm form,
+                                               Map<String, String> variables,
+                                               String platform, String botId, String groupId) {
+        LayerRender base = renderLayer(PromptFragmentDO.LAYER_IDENTITY, form, variables);
         PersonaDO persona;
         try {
             persona = personaResolver.resolve(platform, botId, groupId);
@@ -193,11 +233,13 @@ public class PromptAssembler {
             log.warn("人格解析失败回默认人格组装（Run 不因人格缺失失败）", e);
             persona = null;
         }
+        long personaVersion = persona != null && persona.getVersionNo() != null
+                ? persona.getVersionNo() : 0;
         if (persona == null) {
-            return layer;
+            return new IdentityRender(base.text(), base.maxFragmentVersion(), 0);
         }
         PersonaRuntime runtime = PersonaRuntime.parse(persona);
-        StringBuilder builder = new StringBuilder(layer);
+        StringBuilder builder = new StringBuilder(base.text());
         PersonaRuntime.VariantDraw draw = drawVariantOf(runtime);
         if (!draw.noVariant() && !draw.text().isBlank()) {
             builder.append("\n[当前表达变体]\n").append(draw.text()).append('\n');
@@ -208,7 +250,7 @@ public class PromptAssembler {
                 builder.append("- ").append(cue).append('\n');
             }
         }
-        return builder.toString();
+        return new IdentityRender(builder.toString(), base.maxFragmentVersion(), personaVersion);
     }
 
     /**
@@ -220,14 +262,24 @@ public class PromptAssembler {
     }
 
     /**
+     * 单层渲染结果：文本 + 该层实际用到的片段最大版本号
+     */
+    private record LayerRender(String text, long maxFragmentVersion) {
+    }
+
+    /**
      * 单层片段渲染：published 片段按 form_fit 过滤后拼接 + 变量替换
      */
-    private String renderLayer(String layer, RunConfig.ExecutionForm form, Map<String, String> variables) {
+    private LayerRender renderLayer(String layer, RunConfig.ExecutionForm form, Map<String, String> variables) {
         List<PromptFragmentDO> fragments = fragmentMapper.selectPublishedByLayer(layer);
         StringBuilder rendered = new StringBuilder();
+        long maxVersion = 0;
         for (PromptFragmentDO fragment : fragments) {
             if (!fitsForm(fragment.getFormFit(), form)) {
                 continue;
+            }
+            if (fragment.getVersionNo() != null) {
+                maxVersion = Math.max(maxVersion, fragment.getVersionNo());
             }
             rendered.append(renderVariables(fragment.getContent(), variables)).append("\n\n");
         }
@@ -238,7 +290,7 @@ public class PromptAssembler {
                 rendered.append(directory);
             }
         }
-        return rendered.toString().trim();
+        return new LayerRender(rendered.toString().trim(), maxVersion);
     }
 
     /**

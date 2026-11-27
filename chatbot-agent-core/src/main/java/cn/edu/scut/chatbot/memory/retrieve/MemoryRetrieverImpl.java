@@ -67,6 +67,17 @@ public class MemoryRetrieverImpl implements MemoryRetriever {
         this.clock = clock;
     }
 
+    /**
+     * 定界 + 注入检测组合件（US7 七通道收口——记忆检索是通道之一）。
+     * setter 注入：未装配（隔离单测上下文）时回退静态定界，只丢检测不丢定界。
+     */
+    private cn.edu.scut.chatbot.security.delimit.DelimitGuard delimitGuard;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setDelimitGuard(cn.edu.scut.chatbot.security.delimit.DelimitGuard guard) {
+        this.delimitGuard = guard;
+    }
+
     @Override
     public MemorySearchResult search(GroupKey group, MemorySearchQuery query) {
         RetrieveParams params = RetrieveParams.load(systemParams);
@@ -165,7 +176,9 @@ public class MemoryRetrieverImpl implements MemoryRetriever {
                     java.time.LocalDateTime.now(clock));
         }
         String body = String.join("\n", lines);
-        return new MemorySearchResult(false, DelimitHeaders.wrap(body));
+        return new MemorySearchResult(false, delimitGuard != null
+                ? delimitGuard.wrap(body, DelimitHeaders.Src.MEMORY)
+                : DelimitHeaders.wrap(body, DelimitHeaders.Src.MEMORY));
     }
 
     private String renderLine(MemoryEntryDO entry, int perLineBudget) {

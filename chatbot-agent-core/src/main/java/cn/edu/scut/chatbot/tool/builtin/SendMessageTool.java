@@ -1,17 +1,21 @@
 package cn.edu.scut.chatbot.tool.builtin;
 
-import cn.edu.scut.chatbot.exception.ToolExecutionException;
 import cn.edu.scut.chatbot.bootstrap.JsonMappers;
 import cn.edu.scut.chatbot.contract.envelope.PrimitiveTypeCodes;
 import cn.edu.scut.chatbot.contract.message.MessagePart;
 import cn.edu.scut.chatbot.contract.message.TextPart;
 import cn.edu.scut.chatbot.engine.outbox.OutboxWriter;
+import cn.edu.scut.chatbot.exception.ToolExecutionException;
 import cn.edu.scut.chatbot.loop.AgentTool;
 import cn.edu.scut.chatbot.loop.AgentToolResult;
 import cn.edu.scut.chatbot.loop.ToolDescriptor;
 import cn.edu.scut.chatbot.loop.ToolInvocation;
 import cn.edu.scut.chatbot.loop.message.TextContent;
+import cn.edu.scut.chatbot.security.audit.SecurityDims;
+import cn.edu.scut.chatbot.security.audit.SpanSecurityMarker;
+import cn.edu.scut.chatbot.security.gatepolicy.OutboundScreenService;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -33,6 +37,24 @@ public class SendMessageTool implements AgentTool {
             },"required":["text"]}""";
 
     private final OutboxWriter outboxWriter;
+
+    /**
+     * 出站快筛（US8 安全闸——sendMessage 执行入口最先调用）。
+     * setter 注入：未装配（隔离单测上下文）时零筛检直投，快筛能力随装配生效。
+     */
+    private OutboundScreenService screenService;
+
+    private SpanSecurityMarker spanSecurityMarker;
+
+    @Autowired(required = false)
+    void setScreenService(OutboundScreenService service) {
+        this.screenService = service;
+    }
+
+    @Autowired(required = false)
+    void setSpanSecurityMarker(SpanSecurityMarker marker) {
+        this.spanSecurityMarker = marker;
+    }
 
     public SendMessageTool(OutboxWriter outboxWriter) {
         this.outboxWriter = outboxWriter;
@@ -59,6 +81,24 @@ public class SendMessageTool implements AgentTool {
             if (text == null || text.isBlank()) {
                 return AgentToolResult.error("text 参数不能为空（要说什么就写什么）");
             }
+
+            // 出站快筛（US8）：执行入口最先调用——命中 block 词库或提示词指纹即
+            // isError + 终止循环（防换措辞重试）+ Outbox 零写入（return 在 enqueue 之前）
+            if (screenService != null) {
+                String traceId = currentTraceId();
+                SecurityDims dims = SecurityDims.ofGroup(invocation.platform(), invocation.botId(), invocation.groupId());
+                OutboundScreenService.ScreenResult verdict = screenService.screen(text, invocation.systemPrompt(), dims, traceId);
+                if (verdict.blocked()) {
+                    if (spanSecurityMarker != null) {
+                        spanSecurityMarker.markToolInterception(invocation.platform(), invocation.botId(), invocation.groupId(),
+                                "sendMessage", verdict.errorCode(), "outboundScreen");
+                    }
+                    return AgentToolResult.errorTerminating(
+                            "这条发言没有通过安全检查（" + verdict.errorCode()
+                                    + "），本次对话到此为止（不要尝试换措辞重发）");
+                }
+            }
+
             String replyTo = arguments.path("replyToMessageId").asText(null);
 
             List<MessagePart> parts = new ArrayList<>();
@@ -76,5 +116,14 @@ public class SendMessageTool implements AgentTool {
         } catch (Exception e) {
             throw new ToolExecutionException("tool.execution_failed", "sendMessage 执行失败：" + e.getMessage(), e);
         }
+    }
+
+    private static String currentTraceId() {
+        io.opentelemetry.api.trace.SpanContext ctx =
+                io.opentelemetry.api.trace.Span.current().getSpanContext();
+        if (ctx != null && ctx.isValid()) {
+            return ctx.getTraceId();
+        }
+        return org.slf4j.MDC.get("traceId");
     }
 }

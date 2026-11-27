@@ -57,4 +57,31 @@ public interface AgentSessionMapper {
      * 按 runId 取（审计：该 Run 产生了哪些条目）
      */
     List<TranscriptEntryDO> selectByRun(@Param("runId") long runId);
+
+    /**
+     * 会话按水位档位计数（上下文报表）
+     */
+    List<WindowLevelCount> countWindowLevel();
+
+    /**
+     * 窗口内转录 (kind, occurred_at) 轻量序列（被回复率跟帖判定与压缩频率计数）
+     */
+    List<TranscriptKindTime> selectTranscriptKindTimes(@Param("from") java.time.LocalDateTime from,
+                                                       @Param("to") java.time.LocalDateTime to,
+                                                       @Param("groupId") String groupId);
+
+    /**
+     * 删除该会话的重放临时转录（dry-run Pass@k 每次执行前清场：前情种子经
+     * appendTranscript(runId=null) 落库——run_id 为空的保留；上次重放 Run 落库的
+     * 发言与工具结果清空，k 次执行彼此独立）
+     */
+    int deleteReplayTransient(@Param("sessionId") long sessionId);
+
+    /**
+     * 个体数据清除（US12）：删除指定群内该用户的发言转录条目（kind='user' 且 senderUserId 匹配）
+     */
+    int deleteUserTranscriptByGroup(@Param("platform") String platform,
+                                    @Param("botId") String botId,
+                                    @Param("groupId") String groupId,
+                                    @Param("userId") String userId);
 }

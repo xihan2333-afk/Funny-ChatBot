@@ -25,4 +25,9 @@ public class ModelSlotDO {
     private String genParams;
 
     private Boolean enabled;
+
+    /**
+     * 绑定行最后变更时间（无自增版本列——变更时间即"绑定版本"，观测侧版本三键取数）
+     */
+    private java.time.LocalDateTime updatedAt;
 }

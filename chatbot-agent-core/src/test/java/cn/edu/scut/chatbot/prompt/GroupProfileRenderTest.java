@@ -94,9 +94,9 @@ class GroupProfileRenderTest {
         String assembled = assemble();
 
         // 群上下文层只有概况，没有档位/态度措辞（那归现注区态度行）；
-        // 整块以数据身份定界（群友相关数据是不可信内容）
+        // 整块以 XML 定界（US7 不可信变量通道）
         assertThat(assembled).doesNotContain("挚友").doesNotContain("厌恶").doesNotContain("态度");
-        int headerIndex = assembled.indexOf(PromptAssembler.DELIMIT_HEADER);
+        int headerIndex = assembled.indexOf("<untrusted src=\"variable\">");
         int digestIndex = assembled.indexOf("成员概况");
         assertThat(headerIndex).isGreaterThanOrEqualTo(0).isLessThan(digestIndex);
     }

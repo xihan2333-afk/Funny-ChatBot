@@ -1,0 +1,44 @@
+{
+  "index_patterns": [
+    "logs-system-*"
+  ],
+  "data_stream": {},
+  "priority": 200,
+  "template": {
+    "settings": {
+      "index.lifecycle.name": "chatbot-observe-7d",
+      "number_of_shards": 1,
+      "number_of_replicas": 0
+    },
+    "mappings": {
+      "properties": {
+        "@timestamp": {
+          "type": "date"
+        },
+        "severity": {
+          "type": "keyword"
+        },
+        "logger": {
+          "type": "keyword"
+        },
+        "message": {
+          "type": "text"
+        },
+        "trace_id": {
+          "type": "keyword"
+        },
+        "span_id": {
+          "type": "keyword"
+        },
+        "log": {
+          "type": "object",
+          "properties": {
+            "category": {
+              "type": "keyword"
+            }
+          }
+        }
+      }
+    }
+  }
+}

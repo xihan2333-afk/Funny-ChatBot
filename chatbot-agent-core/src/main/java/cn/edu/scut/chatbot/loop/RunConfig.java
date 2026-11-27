@@ -20,7 +20,9 @@ public record RunConfig(
         ExecutionForm form,
         int maxTurns,
         Duration timeBudget,
-        long stallTimeoutMillis
+        long stallTimeoutMillis,
+        VersionKeys versionKeys,
+        boolean replay
 ) {
 
     /**
@@ -41,15 +43,42 @@ public record RunConfig(
         WORKER
     }
 
+    /**
+     * 版本三键（observability-bridge 契约 2.2 节）：RunConfig 组装时的当前生效版本，
+     * 随 RunEvent START 挂到 run Span（chatbot.version.*）——重放批次"按版本分组聚合
+     * 得注入前后对照"的口径来源。纯值三 long，loop 不依赖任何业务包。
+     *
+     * <p>三键语义：promptFragment = 本次组装用到的 published 片段最大版本号；
+     * persona = 绑定人格的 version_no（未绑定为 0）；slotBinding = 槽位行 updated_at
+     * 的纪元毫秒（绑定关系无自增版本列，变更时间即版本）。
+     */
+    public record VersionKeys(long promptFragment, long persona, long slotBinding) {
+    }
+
     public static RunConfig turnDefaults() {
-        return new RunConfig(ExecutionForm.TURN, 3, Duration.ofSeconds(60), 15_000);
+        return new RunConfig(ExecutionForm.TURN, 3, Duration.ofSeconds(60), 15_000, null, false);
     }
 
     public static RunConfig lightTaskDefaults() {
-        return new RunConfig(ExecutionForm.LIGHT_TASK, 5, Duration.ofSeconds(120), 15_000);
+        return new RunConfig(ExecutionForm.LIGHT_TASK, 5, Duration.ofSeconds(120), 15_000, null, false);
     }
 
     public static RunConfig workerDefaults() {
-        return new RunConfig(ExecutionForm.WORKER, 40, Duration.ofMinutes(10), 30_000);
+        return new RunConfig(ExecutionForm.WORKER, 40, Duration.ofMinutes(10), 30_000, null, false);
+    }
+
+    /**
+     * 组装期填入版本三键（engine 侧在 RunSpec 组装点调用——观测代码零侵入 loop 内核）
+     */
+    public RunConfig withVersionKeys(VersionKeys keys) {
+        return new RunConfig(form, maxTurns, timeBudget, stallTimeoutMillis, keys, replay);
+    }
+
+    /**
+     * 重放标记（T055 记账贯通）：dry-run 重放的 Run 置 true——落账 is_replay=1 与
+     * run Span chatbot.replay=true 的纯值来源；线上 Run 一律 false（缺省）
+     */
+    public RunConfig withReplay(boolean replayFlag) {
+        return new RunConfig(form, maxTurns, timeBudget, stallTimeoutMillis, versionKeys, replayFlag);
     }
 }

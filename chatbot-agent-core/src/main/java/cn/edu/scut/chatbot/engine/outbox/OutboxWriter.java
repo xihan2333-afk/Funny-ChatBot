@@ -8,6 +8,9 @@ import cn.edu.scut.chatbot.engine.effect.EffectsQueueMapper;
 import cn.edu.scut.chatbot.engine.turn.TurnDO;
 import cn.edu.scut.chatbot.engine.turn.TurnMapper;
 import cn.edu.scut.chatbot.engine.turn.TurnStatus;
+import cn.edu.scut.chatbot.security.audit.SecurityDims;
+import cn.edu.scut.chatbot.security.audit.SecurityEventKind;
+import cn.edu.scut.chatbot.security.audit.SecurityEventRecorder;
 import io.opentelemetry.api.GlobalOpenTelemetry;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.Tracer;
@@ -18,7 +21,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
 import java.time.LocalDateTime;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 出站闭环（spec US3、契约 redis-streams 第 2 节）：enqueueOutbound 先落库取得 outboxId
@@ -44,19 +49,111 @@ public class OutboxWriter {
     private final IdGenerator idGenerator;
     private final Clock clock;
     private final cn.edu.scut.chatbot.engine.session.TranscriptIntakeWriter transcriptIntakeWriter;
+    private final cn.edu.scut.chatbot.engine.intake.TriggerEventMapper triggerEventMapper;
 
     public OutboxWriter(OutboxMapper outboxMapper,
                         EffectsQueueMapper effectsQueueMapper,
                         TurnMapper turnMapper,
                         IdGenerator idGenerator,
                         Clock clock,
-                        cn.edu.scut.chatbot.engine.session.TranscriptIntakeWriter transcriptIntakeWriter) {
+                        cn.edu.scut.chatbot.engine.session.TranscriptIntakeWriter transcriptIntakeWriter,
+                        cn.edu.scut.chatbot.engine.intake.TriggerEventMapper triggerEventMapper) {
         this.outboxMapper = outboxMapper;
         this.effectsQueueMapper = effectsQueueMapper;
         this.turnMapper = turnMapper;
         this.idGenerator = idGenerator;
         this.clock = clock;
         this.transcriptIntakeWriter = transcriptIntakeWriter;
+        this.triggerEventMapper = triggerEventMapper;
+    }
+
+    /**
+     * 引擎事件发布器（回执结算 DeliverySettled 与结算段 Turn 推进发射——观测桥的
+     * delivery.settle Span 数据源）。setter 注入可选装配：未装配时零开销，测试构造不受扰。
+     */
+    private cn.edu.scut.chatbot.engine.events.EngineEventPublisher engineEvents;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setEngineEventPublisher(cn.edu.scut.chatbot.engine.events.EngineEventPublisher publisher) {
+        this.engineEvents = publisher;
+    }
+
+    private void emitDeliverySettled(OutboxDO outbox, String status) {
+        if (engineEvents != null) {
+            engineEvents.publish(new cn.edu.scut.chatbot.engine.events.EngineEvent.DeliverySettled(
+                    outbox.getPlatform(), outbox.getBotId(), outbox.getGroupId(),
+                    outbox.getId(), status, traceIdOf(outbox.getTraceContext()),
+                    outbox.getTraceContext()));
+        }
+    }
+
+    /**
+     * 安全事件记录器（US8 平台拒发回流闭环：拒发结算 → security_event(contentFiltered,
+     * source=platform) 含发言摘要——人工复核后经管理面补 converted 词库）。
+     * setter 注入可选装配：未装配时零开销，测试构造不受扰。
+     */
+    private SecurityEventRecorder securityEventRecorder;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setSecurityEventRecorder(SecurityEventRecorder recorder) {
+        this.securityEventRecorder = recorder;
+    }
+
+    /**
+     * 平台拒发留痕（contentFiltered 的拒发回流形态——source=platform 区分于快筛拦截）
+     */
+    private void recordPlatformReject(OutboxDO outbox, String failureKind) {
+        if (securityEventRecorder == null) {
+            return;
+        }
+        try {
+            Map<String, Object> detail = new LinkedHashMap<>();
+            detail.put("source", "platform");
+            detail.put("failureKind", failureKind);
+            detail.put("outboxId", outbox.getId());
+            detail.put("speechSnippet", speechSnippetOf(outbox));
+            securityEventRecorder.record(
+                    SecurityEventKind.CONTENT_FILTERED,
+                    SecurityDims.ofGroup(
+                            outbox.getPlatform(), outbox.getBotId(), outbox.getGroupId()),
+                    detail, traceIdOf(outbox.getTraceContext()));
+        } catch (Exception e) {
+            log.warn("平台拒发事件记录失败（不影响结算） outboxId={}", outbox.getId(), e);
+        }
+    }
+
+    /**
+     * 拒发发言的文本摘要（payload 是 SendGroupMessagePayload JSON——取首个 text 段）
+     */
+    private String speechSnippetOf(OutboxDO outbox) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode payload = cn.edu.scut.chatbot.bootstrap.JsonMappers
+                    .shared().readTree(outbox.getPayload());
+            String text = payload.path("parts").path(0).path("text").asText("");
+            String compact = text.replaceAll("\\s+", " ").trim();
+            return compact.length() <= 120 ? compact : compact.substring(0, 120);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private void emitTurnSettlement(TurnDO turn, String to, java.util.List<String> speechOutboxIds) {
+        if (engineEvents != null) {
+            engineEvents.publish(new cn.edu.scut.chatbot.engine.events.EngineEvent.TurnTransitioned(
+                    turn.getPlatform(), turn.getBotId(), turn.getGroupId(),
+                    turn.getId(), TurnStatus.SETTLING.name(), to, speechOutboxIds));
+        }
+    }
+
+    /**
+     * W3C traceparent（00-{traceId}-{spanId}-{flags}）→ traceId 段（回执引用原出事件）
+     */
+    static String traceIdOf(String traceparent) {
+        if (traceparent == null) {
+            return null;
+        }
+        String[] parts = traceparent.split("-");
+        return parts.length == 4 ? parts[1] : null;
     }
 
     /**
@@ -77,7 +174,7 @@ public class OutboxWriter {
         outbox.setPayload(payloadJson);
         outbox.setTurnId(turnId);
         outbox.setTaskId(taskId);
-        outbox.setTraceContext(currentTraceparent("outbox:" + type));
+        outbox.setTraceContext(outboundTraceparent(type, turnId));
         outbox.setStatus(OutboxDO.STATUS_PENDING);
         outboxMapper.insertOutbox(outbox);
 
@@ -111,6 +208,10 @@ public class OutboxWriter {
                             OutboxDO.STATUS_FAILED.equals(status) ? "failed" : "success",
                             errorCode, null, null, clock.millis(), false),
                     outbox.getPlatform(), outbox.getBotId(), outbox.getGroupId());
+            emitDeliverySettled(outbox, status);
+            if (OutboxDO.STATUS_FAILED.equals(status)) {
+                recordPlatformReject(outbox, errorCode);
+            }
         }
         if (outbox.getTurnId() != null) {
             advanceTurnSettlement(outbox.getTurnId());
@@ -141,6 +242,10 @@ public class OutboxWriter {
         if (firstSettlement) {
             transcriptIntakeWriter.writeDeliveryReport(report,
                     outbox.getPlatform(), outbox.getBotId(), outbox.getGroupId());
+            emitDeliverySettled(outbox, status);
+            if (OutboxDO.STATUS_FAILED.equals(status)) {
+                recordPlatformReject(outbox, report.failureKind());
+            }
         }
 
         if (outbox.getTurnId() == null) {
@@ -179,12 +284,18 @@ public class OutboxWriter {
                     EngineErrorCodes.OUTBOX_DISPATCH_FAILED);
             if (updated == 0) {
                 logNonZeroAdvance(turnId);
+            } else {
+                emitTurnSettlement(turn, TurnStatus.FAILED.name(),
+                        outs.stream().map(row -> String.valueOf(row.getId())).toList());
             }
         } else if (allSettled) {
             int updated = turnMapper.advanceStatus(turnId, TurnStatus.SETTLING.name(),
                     TurnStatus.SETTLED.name(), LocalDateTime.now(clock), null, null);
             if (updated == 0) {
                 logNonZeroAdvance(turnId);
+            } else {
+                emitTurnSettlement(turn, TurnStatus.SETTLED.name(),
+                        outs.stream().map(row -> String.valueOf(row.getId())).toList());
             }
         }
     }
@@ -199,6 +310,47 @@ public class OutboxWriter {
 
     private void logNonZeroAdvance(long turnId) {
         log.warn("Turn 推进影响行数为 0（并发推进或状态已变） turnId={}", turnId);
+    }
+
+    /**
+     * 出向 traceparent 取值链（T015 出事件跨进程接续）：优先取本 Turn 消化的触发器
+     * trace_context（与接入层入事件同 trace——无 javaagent 的部署与 IT 也全程一条 trace）；
+     * Turn 无关联（任务留痕发言等）回退当前线程环境上下文（javaagent 增强路径）；
+     * 两者皆无返回 null（无追踪环境不发假值）。
+     */
+    private String outboundTraceparent(String type, Long turnId) {
+        if (turnId != null) {
+            String fromTrigger = turnTraceContext(turnId);
+            if (fromTrigger != null) {
+                return fromTrigger;
+            }
+        }
+        return currentTraceparent("outbox:" + type);
+    }
+
+    /**
+     * Turn → 首个触发器的 trace_context（trigger_ids JSON 数组首个可取值项）
+     */
+    private String turnTraceContext(long turnId) {
+        try {
+            TurnDO turn = turnMapper.selectById(turnId);
+            if (turn == null || turn.getTriggerIds() == null || turn.getTriggerIds().isBlank()) {
+                return null;
+            }
+            java.util.List<Long> ids = cn.edu.scut.chatbot.bootstrap.JsonMappers.shared().readValue(
+                    turn.getTriggerIds(),
+                    cn.edu.scut.chatbot.bootstrap.JsonMappers.shared().getTypeFactory()
+                            .constructCollectionType(java.util.List.class, Long.class));
+            for (Long triggerId : ids) {
+                var trigger = triggerEventMapper.selectById(triggerId);
+                if (trigger != null && trigger.getTraceContext() != null) {
+                    return trigger.getTraceContext();
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Turn 触发器 trace_context 取数失败（回退环境上下文） turnId={}", turnId, e);
+        }
+        return null;
     }
 
     /**

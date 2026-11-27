@@ -36,6 +36,9 @@ class IntakeGateIT extends AbstractIntegrationTest {
     private cn.edu.scut.chatbot.engine.effect.EffectsQueueMapper effectsQueueMapper;
 
     @Autowired
+    private cn.edu.scut.chatbot.engine.turn.TurnMapper turnMapper;
+
+    @Autowired
     private cn.edu.scut.chatbot.engine.gate.L1BatchAssessor l1BatchAssessor;
 
     @Autowired
@@ -147,9 +150,13 @@ class IntakeGateIT extends AbstractIntegrationTest {
         assertThat(triggers).hasSize(1);
         assertThat(triggers.get(0).getDecision()).isEqualTo("accept");
         assertThat(triggers.get(0).getDecisionLayer()).isEqualTo("L0");
-        // L0 accept 直接入 generation Effect（Phase 5 改为 acceptTurn 排队）
-        assertThat(effectsQueueMapper.selectByMergeKey("qq", "10000", groupId,
-                EffectsQueueDO.KIND_GENERATION)).isNotNull();
+        // L0 accept 进入生成链路：generation Effect 消费很快、成功后行即删——
+        // 「行存在」是竞态断言，改用稳定副作用（trigger 的 turnId 回填与 turn 表行）
+        String dedupKey = triggers.get(0).getDedupKey();
+        await().atMost(java.time.Duration.ofSeconds(10)).until(() ->
+                triggerEventMapper.selectByDedupKey("qq", "10000", dedupKey).getTurnId() != null);
+        Long turnId = triggerEventMapper.selectByDedupKey("qq", "10000", dedupKey).getTurnId();
+        assertThat(turnMapper.selectById(turnId)).isNotNull();
     }
 
     private void markGroupInService(String groupId) {

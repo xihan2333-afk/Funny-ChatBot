@@ -5,6 +5,7 @@ package cn.edu.scut.chatbot.engine.outbox
 
 import cn.edu.scut.chatbot.contract.in.DeliveryReportPayload
 import cn.edu.scut.chatbot.engine.effect.EffectsQueueMapper
+import cn.edu.scut.chatbot.engine.intake.TriggerEventMapper
 import cn.edu.scut.chatbot.engine.session.TranscriptIntakeWriter
 import cn.edu.scut.chatbot.engine.turn.TurnMapper
 import cn.edu.scut.chatbot.fixtures.FixedClock
@@ -16,10 +17,11 @@ class OutboxWriterReceiptTranscriptTest extends Specification {
     def outboxMapper = Mock(OutboxMapper)
     def effectsQueueMapper = Mock(EffectsQueueMapper)
     def turnMapper = Mock(TurnMapper)
+    def triggerEventMapper = Mock(TriggerEventMapper)
     def transcriptIntakeWriter = Mock(TranscriptIntakeWriter)
 
     OutboxWriter writer = new OutboxWriter(outboxMapper, effectsQueueMapper, turnMapper,
-            new SeededIdGenerator(), new FixedClock(), transcriptIntakeWriter)
+            new SeededIdGenerator(), new FixedClock(), transcriptIntakeWriter, triggerEventMapper)
 
     def "回执结算成功后写回执转录条目（群标识取自outbox行）"() {
         given: "一条在途（PENDING）的出站消息——turn 关联为空，隔离 Turn 推进"

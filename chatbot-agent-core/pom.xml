@@ -65,11 +65,30 @@
             <groupId>co.elastic.clients</groupId>
             <artifactId>elasticsearch-java</artifactId>
         </dependency>
+        <!-- ES 客户端运行时依赖 jakarta.json 2.x（Boot BOM 管到 1.1.6 旧线，须显式覆盖） -->
+        <dependency>
+            <groupId>jakarta.json</groupId>
+            <artifactId>jakarta.json-api</artifactId>
+        </dependency>
 
-        <!-- OpenTelemetry API 层，SDK 由 -javaagent 提供 -->
+        <!-- OpenTelemetry API 层：javaagent 在场时事件桥复用其安装的 SDK -->
         <dependency>
             <groupId>io.opentelemetry</groupId>
             <artifactId>opentelemetry-api</artifactId>
+        </dependency>
+        <!--
+          SDK 兜底（2.5.2 双层分工）：javaagent 缺席（本地开发 / 集成测试）时
+          ObservabilityBootstrap 自建 SdkOpenTelemetry 并注册全局，观测代码零感知；
+          版本根 pom 托管、与 api 同线。
+        -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-sdk</artifactId>
+        </dependency>
+        <!-- 自建 SDK 兜底的 OTLP gRPC 导出器（版本根 pom 托管） -->
+        <dependency>
+            <groupId>io.opentelemetry</groupId>
+            <artifactId>opentelemetry-exporter-otlp</artifactId>
         </dependency>
         <dependency>
             <groupId>io.opentelemetry.instrumentation</groupId>
@@ -119,6 +138,12 @@
         <dependency>
             <groupId>org.testcontainers</groupId>
             <artifactId>mysql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Elasticsearch 8 真容器（005 观测域 IT；版本根 pom 托管同 testcontainers 线） -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>elasticsearch</artifactId>
             <scope>test</scope>
         </dependency>
         <!-- 包依赖规约测试（ArchUnit 四条规则，设计方案 3.1.3） -->

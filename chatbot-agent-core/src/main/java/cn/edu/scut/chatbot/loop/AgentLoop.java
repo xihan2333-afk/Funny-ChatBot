@@ -42,6 +42,12 @@ public class AgentLoop {
 
     private static final Logger log = LoggerFactory.getLogger(AgentLoop.class);
 
+    /**
+     * 工具执行流水日志（agent. 前缀——工具执行是 Agent 业务过程，T022；
+     * loop 自身运转日志仍走类名 logger 进系统流）
+     */
+    private static final Logger toolLog = LoggerFactory.getLogger("agent.tool");
+
     private static final ObjectMapper JSON = new ObjectMapper();
 
     /**
@@ -104,7 +110,9 @@ public class AgentLoop {
         CancellationSignal signal = CancellationSignal.create();
         Instant deadline = spec.clock().instant().plus(config.timeBudget());
 
-        emit(spec, LoopEvent.RunEvent.started(spec.runId(), config.form()));
+        emit(spec, LoopEvent.RunEvent.started(spec.runId(), config.form(), config.versionKeys(),
+                new LoopEvent.RunIdentity(spec.platform(), spec.botId(), spec.groupId(),
+                        spec.turnId(), spec.taskId()), config.replay()));
 
         AgentContext context = spec.context();
         String stopReason = RunOutcome.STOP_BUDGET_EXCEEDED;
@@ -130,6 +138,7 @@ public class AgentLoop {
 
             // 单一模型调用点：卡死守护 + 流事件收集
             StreamCollector collector = new StreamCollector(spec.clock(), spec.idSupplier());
+            collector.markCallStart();
             runWithStallWatch(spec, collector, signal,
                     () -> spec.streamFn().stream(request, collector, signal));
 
@@ -145,6 +154,7 @@ public class AgentLoop {
                     turnMessages.add(defective);
                 }
                 stopReason = collector.aborted() ? RunOutcome.STOP_ABORTED : RunOutcome.STOP_ERROR;
+                emit(spec, LoopEvent.MessageEvent.failed(spec.runId(), usageOf(context, collector, null)));
                 safePersist(spec, turnMessages);
                 break;
             }
@@ -152,7 +162,8 @@ public class AgentLoop {
             workingTranscript.add(assistant);
             newMessages.add(assistant);
             turnMessages.add(assistant);
-            emit(spec, new LoopEvent.MessageEvent(spec.runId(), LoopEvent.Phase.END, assistant.messageId()));
+            emit(spec, LoopEvent.MessageEvent.completed(spec.runId(), assistant.messageId(),
+                    usageOf(context, collector, assistant)));
 
             if (assistant.isDefective()) {
                 // Completed 携带 error/aborted 标记（翻译器归一化的模型侧错误）
@@ -276,7 +287,8 @@ public class AgentLoop {
         }
         ToolInvocation invocation = new ToolInvocation(
                 call.argumentsJson(), spec.platform(), spec.botId(), spec.groupId(),
-                spec.config().form(), spec.turnId(), spec.taskId(), call.name());
+                spec.config().form(), spec.turnId(), spec.taskId(), call.name(),
+                spec.context().systemPrompt());
         invocations.put(index, invocation);
 
         LoopHooks.BeforeToolCallHook.Interception interception =
@@ -294,22 +306,73 @@ public class AgentLoop {
                                          ToolInvocation invocation) {
         AgentTool tool = spec.tools().get(call.name());
         AgentToolResult result;
-        emit(spec, new LoopEvent.ToolEvent(spec.runId(), LoopEvent.Phase.START,
-                call.callId(), call.name(), false));
+        emit(spec, LoopEvent.ToolEvent.started(spec.runId(), call.callId(), call.name()));
+        long startNanos = System.nanoTime();
         try {
             result = tool.execute(invocation);
         } catch (ToolExecutionException e) {
-            log.warn("工具执行失败 tool={} errorCode={}（归一化 isError 结果）",
+            toolLog.warn("工具执行失败 tool={} errorCode={}（归一化 isError 结果）",
                     call.name(), e.getErrorCode());
             result = AgentToolResult.error("工具执行失败：" + e.getMessage());
         } catch (Exception e) {
-            log.warn("工具执行异常 tool={}（归一化 isError 结果）", call.name(), e);
+            toolLog.warn("工具执行异常 tool={}（归一化 isError 结果）", call.name(), e);
             result = AgentToolResult.error("工具内部异常：" + e.getMessage());
         }
+        long durationMs = (System.nanoTime() - startNanos) / 1_000_000;
         ToolResultMessage message = toolResult(spec, call, result);
-        emit(spec, new LoopEvent.ToolEvent(spec.runId(), LoopEvent.Phase.END,
-                call.callId(), call.name(), message.isError()));
+        emit(spec, LoopEvent.ToolEvent.ended(spec.runId(), call.callId(), call.name(),
+                message.isError(), call.argumentsJson(), outboxIdOf(call.name(), message), durationMs));
         return message;
+    }
+
+    /**
+     * 发言类工具的出事件 id（sendMessage 成功结果的 outboxId 附件——回执链路关联口径；
+     * 非发言类与失败结果一律 null）
+     */
+    private static String outboxIdOf(String toolName, ToolResultMessage message) {
+        if (!SpeechOutcomeJudger.SEND_MESSAGE_TOOL.equals(toolName) || message.isError()
+                || message.attachments() == null) {
+            return null;
+        }
+        Object outboxId = message.attachments().get("outboxId");
+        return outboxId == null ? null : String.valueOf(outboxId);
+    }
+
+    /**
+     * 用量摘要（与 llm_call_log 落账同源的字段口径，事件桥映射 llm.call Span）：
+     * 模型身份取 AgentContext 第四要素快照、token 与 stopReason 取流终止态、
+     * TTFT 取收集器首增量、失败时 errorCode 取流 Failed 的归一化码。
+     */
+    private static LoopEvent.UsageSummary usageOf(AgentContext context, StreamCollector collector,
+                                                  AssistantMessage assistant) {
+        String modelId = null;
+        String slotCode = null;
+        String providerCode = null;
+        if (context.modelConfig() != null && context.modelConfig().model() != null) {
+            ModelRef model = context.modelConfig().model();
+            modelId = model.modelId();
+            slotCode = model.slotCode();
+            providerCode = model.providerCode();
+        }
+        long inputTokens = 0;
+        long outputTokens = 0;
+        long cachedTokens = 0;
+        String stopReason;
+        if (assistant != null) {
+            AssistantMessage.TokenUsage usage = assistant.usage();
+            if (usage != null) {
+                inputTokens = usage.inputTokens();
+                outputTokens = usage.outputTokens();
+                cachedTokens = usage.cachedTokens();
+            }
+            stopReason = assistant.stopReason();
+        } else {
+            stopReason = collector.aborted()
+                    ? AssistantMessage.STOP_REASON_ABORTED : AssistantMessage.STOP_REASON_ERROR;
+        }
+        return new LoopEvent.UsageSummary(modelId, slotCode, providerCode,
+                inputTokens, outputTokens, cachedTokens,
+                collector.ttftMillis(), stopReason, collector.failedErrorCode());
     }
 
     private ToolResultMessage toolResult(RunSpec spec, AssistantMessage.ToolCallSegment call,
@@ -534,6 +597,17 @@ public class AgentLoop {
 
         private volatile boolean terminated;
 
+        /**
+         * 本次模型调用的发起时刻（TTFT 口径起点——与 CostAwareStreamFn 的请求发出同义）
+         */
+        private volatile long callStartNanos;
+
+        /**
+         * 首个增量到达时刻（文本/思考/工具参数增量——与 CostAwareStreamFn 的 isIncrement
+         * 同一集合，保证 TTFT 与落账口径一致）
+         */
+        private volatile long firstIncrementNanos = -1;
+
         StreamCollector(Clock clock, LongSupplier idSupplier) {
             this.clock = clock;
             this.idSupplier = idSupplier;
@@ -542,6 +616,9 @@ public class AgentLoop {
         @Override
         public void onEvent(ModelStreamEvent event) {
             lastActivityNanos = System.nanoTime();
+            if (firstIncrementNanos < 0 && isIncrement(event)) {
+                firstIncrementNanos = System.nanoTime();
+            }
             if (event instanceof ModelStreamEvent.Completed completedEvent) {
                 this.completed = completedEvent.message();
                 this.terminated = true;
@@ -593,8 +670,29 @@ public class AgentLoop {
             return aborted;
         }
 
+        String failedErrorCode() {
+            return failedErrorCode;
+        }
+
+        void markCallStart() {
+            callStartNanos = System.nanoTime();
+        }
+
+        /**
+         * TTFT（毫秒）：无增量（连接即失败等）记 0——与落账侧同一缺省口径
+         */
+        long ttftMillis() {
+            return firstIncrementNanos < 0 ? 0 : (firstIncrementNanos - callStartNanos) / 1_000_000;
+        }
+
         boolean terminated() {
             return terminated;
+        }
+
+        private static boolean isIncrement(ModelStreamEvent event) {
+            return event instanceof ModelStreamEvent.ThinkingDelta
+                    || event instanceof ModelStreamEvent.TextDelta
+                    || event instanceof ModelStreamEvent.ToolCallDelta;
         }
 
         void markTerminated() {

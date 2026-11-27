@@ -40,6 +40,7 @@ class TranscriptIntakeWriterTest extends Specification {
         def entries = new CopyOnWriteArrayList()
         times * sessionManager.appendTranscript(_ as AgentSessionDO, _, null) >> { session, batch, runId ->
             entries.addAll(batch)
+            []   // appendTranscript 返回落库主键列表——捕获器对返回值无消费，回空表
         }
         return entries
     }
